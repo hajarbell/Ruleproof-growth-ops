@@ -1,7 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { RequireWorkspace, RedirectIfAuth } from "@/components/auth/ProtectedRoute";
+import {
+  RequireWorkspace,
+  RedirectIfAuth,
+} from "@/components/auth/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 
 // Auth pages
@@ -9,6 +12,7 @@ import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import WorkspaceSetupPage from "./pages/auth/WorkspaceSetupPage";
+import InvitePage from "./pages/InvitePage";
 
 // App pages
 import Dashboard from "./pages/Dashboard";
@@ -38,6 +42,9 @@ export default function App() {
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             </Route>
+
+            {/* Invite page — public, handles auth inside */}
+            <Route path="/invite/:token" element={<InvitePage />} />
 
             {/* Workspace setup (logged in, no workspace) */}
             <Route path="/setup-workspace" element={<WorkspaceSetupPage />} />
