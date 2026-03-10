@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Palette,
   Users,
@@ -16,6 +16,7 @@ import {
   Star,
   User as UserIcon,
   Link2,
+  X,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth, MemberRole } from "@/contexts/AuthContext";
@@ -43,10 +44,50 @@ function Avatar({ name, photo }: { name: string; photo?: string }) {
   );
 }
 
-function RoleIcon({ role }: { role: string }) {
-  if (role === "admin") return <Shield className="w-3.5 h-3.5 text-primary" />;
-  if (role === "vip") return <Star className="w-3.5 h-3.5 text-amber-500" />;
-  return <UserIcon className="w-3.5 h-3.5 text-muted-foreground" />;
+const ROLES: {
+  value: MemberRole;
+  label: string;
+  desc: string;
+  icon: any;
+  color: string;
+  bg: string;
+}[] = [
+  {
+    value: "admin",
+    label: "Admin",
+    desc: "Full access to everything",
+    icon: Shield,
+    color: "text-primary",
+    bg: "bg-primary/10 border-primary/30",
+  },
+  {
+    value: "vip",
+    label: "VIP",
+    desc: "No Leads, Scrapers, Campaigns",
+    icon: Star,
+    color: "text-amber-500",
+    bg: "bg-amber-500/10 border-amber-500/30",
+  },
+  {
+    value: "guest",
+    label: "Guest",
+    desc: "Content Studio only",
+    icon: UserIcon,
+    color: "text-muted-foreground",
+    bg: "bg-muted border-border",
+  },
+];
+
+function RolePill({ role }: { role: MemberRole }) {
+  const r = ROLES.find((x) => x.value === role)!;
+  return (
+    <span
+      className={`flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border font-semibold ${r.color} ${r.bg}`}
+    >
+      <r.icon className="w-2.5 h-2.5" />
+      {r.label}
+    </span>
+  );
 }
 
 export default function SettingsPage() {
@@ -63,30 +104,33 @@ export default function SettingsPage() {
   } = useAuth();
   const navigate = useNavigate();
 
+  // Invite modal state
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<MemberRole>("guest");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [regenerating, setRegenerating] = useState(false);
-  const [inviteLink, setInviteLink] = useState(
-    workspace
-      ? `${window.location.origin}/invite/${workspace.inviteToken}`
-      : "",
-  );
+
+  // Member management
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
-  const copyLink = async () => {
-    await navigator.clipboard.writeText(inviteLink);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+  const handleGenerateLink = async () => {
+    setGenerating(true);
+    try {
+      const token = await generateNewInviteToken();
+      setGeneratedLink(
+        `${window.location.origin}/invite/${token}?role=${selectedRole}`,
+      );
+    } finally {
+      setGenerating(false);
+    }
   };
 
-  const handleRegenerate = async () => {
-    setRegenerating(true);
-    try {
-      const t = await generateNewInviteToken();
-      setInviteLink(`${window.location.origin}/invite/${t}`);
-    } finally {
-      setRegenerating(false);
-    }
+  const copyLink = async () => {
+    await navigator.clipboard.writeText(generatedLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   const handleRoleChange = async (uid: string, role: MemberRole) => {
@@ -113,10 +157,143 @@ export default function SettingsPage() {
     navigate("/login");
   };
 
-  const isOwner = workspace?.ownerId === user?.uid;
-
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Invite Modal */}
+      <AnimatePresence>
+        {showInviteModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
+            >
+              <div className="h-1 w-full bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))]" />
+
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                <div>
+                  <h2 className="font-bold text-foreground">
+                    Invite to workspace
+                  </h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Pick a role then generate the link
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowInviteModal(false);
+                    setGeneratedLink("");
+                    setCopied(false);
+                  }}
+                  className="p-2 rounded-lg hover:bg-muted text-muted-foreground"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="px-6 py-5 space-y-4">
+                {/* Role picker */}
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
+                    Select Role
+                  </p>
+                  <div className="space-y-2">
+                    {ROLES.map((r) => (
+                      <button
+                        key={r.value}
+                        onClick={() => {
+                          setSelectedRole(r.value);
+                          setGeneratedLink("");
+                        }}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+                          selectedRole === r.value
+                            ? `${r.bg} ring-2 ring-offset-1 ring-offset-card ${r.color.replace("text-", "ring-")}`
+                            : "border-border hover:bg-muted"
+                        }`}
+                      >
+                        <div
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${r.bg}`}
+                        >
+                          <r.icon className={`w-4 h-4 ${r.color}`} />
+                        </div>
+                        <div>
+                          <p
+                            className={`text-sm font-semibold ${selectedRole === r.value ? r.color : "text-foreground"}`}
+                          >
+                            {r.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {r.desc}
+                          </p>
+                        </div>
+                        {selectedRole === r.value && (
+                          <Check className={`w-4 h-4 ml-auto ${r.color}`} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Generate button */}
+                {!generatedLink && (
+                  <button
+                    onClick={handleGenerateLink}
+                    disabled={generating}
+                    className="w-full py-3 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-60"
+                  >
+                    {generating ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Link2 className="w-4 h-4" />
+                    )}
+                    Generate Invite Link
+                  </button>
+                )}
+
+                {/* Generated link */}
+                {generatedLink && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                      Your invite link
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={generatedLink}
+                        onClick={(e) => (e.target as HTMLInputElement).select()}
+                        className="flex-1 px-3 py-2 rounded-xl bg-muted border border-border text-xs font-mono text-muted-foreground focus:outline-none cursor-text"
+                      />
+                      <button
+                        onClick={copyLink}
+                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all flex-shrink-0 ${copied ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : "gradient-primary text-primary-foreground"}`}
+                      >
+                        {copied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5" />
+                            Copy
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Anyone with this link joins as{" "}
+                      <RolePill role={selectedRole} />. Link expires when you
+                      regenerate it.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <div>
         <h1 className="text-2xl font-bold font-display text-foreground">
           Settings
@@ -153,7 +330,7 @@ export default function SettingsPage() {
         </div>
       </motion.div>
 
-      {/* Members & Invite — admin only */}
+      {/* Members — admin only */}
       {myRole === "admin" && workspace && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -161,7 +338,6 @@ export default function SettingsPage() {
           transition={{ delay: 0.05 }}
           className="glass rounded-xl overflow-hidden shadow-soft"
         >
-          {/* Header */}
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-lg bg-muted">
@@ -175,86 +351,26 @@ export default function SettingsPage() {
                 </p>
               </div>
             </div>
-          </div>
-
-          {/* Invite link */}
-          <div className="px-5 py-4 bg-primary/5 border-b border-border">
-            <div className="flex items-center gap-2 mb-2">
-              <Link2 className="w-3.5 h-3.5 text-primary" />
-              <p className="text-xs font-semibold text-foreground">
-                Invite Link
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <input
-                readOnly
-                value={inviteLink}
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-                className="flex-1 px-3 py-2 rounded-xl bg-muted/80 border border-border text-xs text-muted-foreground font-mono focus:outline-none cursor-text"
-              />
-              <button
-                onClick={copyLink}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all flex-shrink-0 ${copied ? "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" : "gradient-primary text-primary-foreground"}`}
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    Copied!
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    Copy
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleRegenerate}
-                disabled={regenerating}
-                title="Regenerate (invalidates old link)"
-                className="p-2 rounded-xl border border-border hover:bg-muted transition-colors text-muted-foreground disabled:opacity-50"
-              >
-                {regenerating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-              </button>
-            </div>
-            <p className="text-[11px] text-muted-foreground mt-2">
-              New members join as <strong>Guest</strong> by default. You can
-              change their role below. Regenerating invalidates the old link.
-            </p>
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="gradient-primary text-primary-foreground px-4 py-2 rounded-xl text-sm font-semibold flex items-center gap-2 hover:opacity-90"
+            >
+              <Link2 className="w-3.5 h-3.5" />
+              Invite Member
+            </button>
           </div>
 
           {/* Role legend */}
-          <div className="px-5 py-3 bg-muted/30 border-b border-border flex items-center gap-4 flex-wrap">
-            {[
-              {
-                role: "admin",
-                label: "Admin — full access",
-                icon: Shield,
-                color: "text-primary",
-              },
-              {
-                role: "vip",
-                label: "VIP — no Leads/Scrapers/Campaigns",
-                icon: Star,
-                color: "text-amber-500",
-              },
-              {
-                role: "guest",
-                label: "Guest — Content Studio only",
-                icon: UserIcon,
-                color: "text-muted-foreground",
-              },
-            ].map(({ role, label, icon: Icon, color }) => (
+          <div className="px-5 py-2.5 bg-muted/30 border-b border-border flex items-center gap-4 flex-wrap">
+            {ROLES.map((r) => (
               <div
-                key={role}
-                className={`flex items-center gap-1.5 text-[11px] ${color}`}
+                key={r.value}
+                className={`flex items-center gap-1.5 text-[11px] ${r.color}`}
               >
-                <Icon className="w-3 h-3" />
-                <span>{label}</span>
+                <r.icon className="w-3 h-3" />
+                <span>
+                  {r.label} — {r.desc}
+                </span>
               </div>
             ))}
           </div>
@@ -297,11 +413,9 @@ export default function SettingsPage() {
                     )}
                   </div>
 
-                  {/* Role — can't change owner */}
                   {!isWsOwner ? (
                     <div className="flex items-center gap-2">
                       <div className="relative">
-                        <RoleIcon role={member.role} />
                         <select
                           value={member.role}
                           onChange={(e) =>
@@ -311,24 +425,7 @@ export default function SettingsPage() {
                             )
                           }
                           disabled={!!updatingRole || isMe}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full"
-                        >
-                          <option value="admin">Admin</option>
-                          <option value="vip">VIP</option>
-                          <option value="guest">Guest</option>
-                        </select>
-                      </div>
-                      <div className="relative">
-                        <select
-                          value={member.role}
-                          onChange={(e) =>
-                            handleRoleChange(
-                              member.uid,
-                              e.target.value as MemberRole,
-                            )
-                          }
-                          disabled={!!updatingRole || isMe}
-                          className="appearance-none pl-2.5 pr-6 py-1.5 rounded-lg bg-muted border border-border text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-default"
+                          className="appearance-none pl-2.5 pr-6 py-1.5 rounded-lg bg-muted border border-border text-xs font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring cursor-pointer disabled:opacity-50"
                         >
                           <option value="admin">Admin</option>
                           <option value="vip">VIP</option>
@@ -345,7 +442,6 @@ export default function SettingsPage() {
                           onClick={() => handleRemove(member.uid, name)}
                           disabled={!!removing}
                           className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
-                          title="Remove member"
                         >
                           {removing === member.uid ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -356,10 +452,7 @@ export default function SettingsPage() {
                       )}
                     </div>
                   ) : (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-semibold flex items-center gap-1">
-                      <Shield className="w-2.5 h-2.5" />
-                      Admin
-                    </span>
+                    <RolePill role="admin" />
                   )}
                 </div>
               );
@@ -390,15 +483,14 @@ export default function SettingsPage() {
               </h3>
               <p className="text-xs text-muted-foreground">
                 {myRole === "vip"
-                  ? "You have access to everything except Leads CRM, Scrapers, and Campaigns."
-                  : "You have access to Content Studio only."}
+                  ? "Access to everything except Leads CRM, Scrapers, and Campaigns."
+                  : "Access to Content Studio only."}
               </p>
             </div>
           </div>
         </motion.div>
       )}
 
-      {/* Other settings */}
       {[
         {
           title: "Notifications",
@@ -430,7 +522,6 @@ export default function SettingsPage() {
         </motion.div>
       ))}
 
-      {/* Sign out */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
