@@ -26,11 +26,13 @@ import {
   serverTimestamp,
   query,
   where,
+  arrayUnion,
+  arrayRemove,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-export type MemberRole = "admin" | "guest";
+export type MemberRole = "admin" | "vip" | "guest";
 
 export interface WorkspaceMember {
   uid: string;
@@ -38,7 +40,7 @@ export interface WorkspaceMember {
   displayName: string;
   photoURL: string;
   role: MemberRole;
-  joinedAt: unknown;
+  joinedAt: string;
 }
 
 export interface Workspace {
@@ -46,6 +48,7 @@ export interface Workspace {
   name: string;
   ownerId: string;
   inviteToken: string;
+  members: WorkspaceMember[];
   createdAt: unknown;
 }
 
@@ -55,7 +58,6 @@ interface AuthContextType {
   members: WorkspaceMember[];
   myRole: MemberRole | null;
   loading: boolean;
-  // Auth actions
   signInWithGoogle: () => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (
@@ -65,7 +67,6 @@ interface AuthContextType {
   ) => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
-  // Workspace actions
   createWorkspace: (name: string) => Promise<void>;
   generateNewInviteToken: () => Promise<string>;
   joinWorkspaceByToken: (
@@ -97,39 +98,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [myRole, setMyRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // ── Load workspace + members for a user ──
-  const loadWorkspace = async (uid: string) => {
-    // Check if user is a member of any workspace
+  const loadWorkspace = async (uid: string, currentUser?: User | null) => {
+    const u = currentUser ?? user;
+
+    // 1. Try user doc
     const userDoc = await getDoc(doc(db, "users", uid));
-    const workspaceId = userDoc.data()?.workspaceId;
+    let workspaceId: string | undefined = userDoc.data()?.workspaceId;
+
+    // 2. Fallback: find workspace where ownerId == uid
+    if (!workspaceId) {
+      const q = query(
+        collection(db, "workspaces"),
+        where("ownerId", "==", uid),
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        workspaceId = snap.docs[0].id;
+        await setDoc(doc(db, "users", uid), { workspaceId }, { merge: true });
+      }
+    }
+
     if (!workspaceId) return;
 
     const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
     if (!wsDoc.exists()) return;
 
-    const ws = { id: wsDoc.id, ...wsDoc.data() } as Workspace;
+    const wsData = wsDoc.data();
+    const ws: Workspace = { id: wsDoc.id, ...wsData } as Workspace;
+
+    // 3. Parse members array (Firestore stores as array of objects)
+    let membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
+      ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
+      : [];
+
+    // 4. Bootstrap owner if empty
+    if (membersArr.length === 0) {
+      const ownerMember: WorkspaceMember = {
+        uid,
+        email: userDoc.data()?.email ?? u?.email ?? "",
+        displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
+        photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
+        role: "admin",
+        joinedAt: new Date().toISOString(),
+      };
+      membersArr = [ownerMember];
+      await updateDoc(doc(db, "workspaces", workspaceId), {
+        members: membersArr,
+      });
+    }
+
     setWorkspace(ws);
-
-    // Load members
-    const membersSnap = await getDocs(
-      collection(db, "workspaces", workspaceId, "members"),
-    );
-    const membersData = membersSnap.docs.map((d) => ({
-      uid: d.id,
-      ...d.data(),
-    })) as WorkspaceMember[];
-    setMembers(membersData);
-
-    // Find my role
-    const me = membersData.find((m) => m.uid === uid);
-    setMyRole(me?.role ?? "guest");
+    setMembers(membersArr);
+    // Owner is always admin regardless of what's stored
+    const me = membersArr.find((m) => m.uid === uid);
+    setMyRole(ws.ownerId === uid ? "admin" : (me?.role ?? "guest"));
   };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        await loadWorkspace(u.uid);
+        await loadWorkspace(u.uid, u);
       } else {
         setWorkspace(null);
         setMembers([]);
@@ -140,16 +169,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ── Auth actions ──
   const signInWithGoogle = async () => {
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    await loadWorkspace(result.user.uid);
+    const result = await signInWithPopup(auth, new GoogleAuthProvider());
+    await setDoc(
+      doc(db, "users", result.user.uid),
+      {
+        email: result.user.email ?? "",
+        displayName: result.user.displayName ?? "",
+        photoURL: result.user.photoURL ?? "",
+      },
+      { merge: true },
+    );
+    await loadWorkspace(result.user.uid, result.user);
   };
 
   const signInWithEmail = async (email: string, password: string) => {
     const result = await signInWithEmailAndPassword(auth, email, password);
-    await loadWorkspace(result.user.uid);
+    await loadWorkspace(result.user.uid, result.user);
   };
 
   const signUpWithEmail = async (
@@ -159,7 +195,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     const result = await createUserWithEmailAndPassword(auth, email, password);
     await updateProfile(result.user, { displayName: name });
-    // Create user doc (no workspace yet)
     await setDoc(doc(db, "users", result.user.uid), {
       email,
       displayName: name,
@@ -175,63 +210,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMyRole(null);
   };
 
-  const resetPassword = async (email: string) => {
-    await sendPasswordResetEmail(auth, email);
-  };
+  const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 
-  // ── Workspace actions ──
   const createWorkspace = async (name: string) => {
     if (!user) return;
     const inviteToken = generateToken();
+    const ownerMember: WorkspaceMember = {
+      uid: user.uid,
+      email: user.email ?? "",
+      displayName: user.displayName ?? "",
+      photoURL: user.photoURL ?? "",
+      role: "admin",
+      joinedAt: new Date().toISOString(),
+    };
     const wsRef = doc(collection(db, "workspaces"));
     await setDoc(wsRef, {
       name,
       ownerId: user.uid,
       inviteToken,
+      members: [ownerMember],
       createdAt: serverTimestamp(),
     });
-
-    // Add owner as admin member
-    await setDoc(doc(db, "workspaces", wsRef.id, "members", user.uid), {
-      uid: user.uid,
-      email: user.email ?? "",
-      displayName: user.displayName ?? "",
-      photoURL: user.photoURL ?? "",
-      role: "admin" as MemberRole,
-      joinedAt: serverTimestamp(),
-    });
-
-    // Save workspaceId to user doc
     await setDoc(
       doc(db, "users", user.uid),
-      {
-        email: user.email ?? "",
-        displayName: user.displayName ?? "",
-        photoURL: user.photoURL ?? "",
-        workspaceId: wsRef.id,
-      },
+      { workspaceId: wsRef.id },
       { merge: true },
     );
-
     const ws: Workspace = {
       id: wsRef.id,
       name,
       ownerId: user.uid,
       inviteToken,
+      members: [ownerMember],
       createdAt: null,
     };
     setWorkspace(ws);
+    setMembers([ownerMember]);
     setMyRole("admin");
-    setMembers([
-      {
-        uid: user.uid,
-        email: user.email ?? "",
-        displayName: user.displayName ?? "",
-        photoURL: user.photoURL ?? "",
-        role: "admin",
-        joinedAt: null,
-      },
-    ]);
   };
 
   const generateNewInviteToken = async (): Promise<string> => {
@@ -248,65 +263,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     token: string,
   ): Promise<{ workspaceName: string; role: MemberRole }> => {
     if (!user) throw new Error("Not logged in");
-
-    // Find workspace by invite token
-    const wsQuery = query(
+    const q = query(
       collection(db, "workspaces"),
       where("inviteToken", "==", token),
     );
-    const snap = await getDocs(wsQuery);
-    if (snap.empty) throw new Error("Invalid invite link");
+    const snap = await getDocs(q);
+    if (snap.empty) throw new Error("Invalid or expired invite link.");
 
     const wsDoc = snap.docs[0];
     const wsData = wsDoc.data();
     const workspaceId = wsDoc.id;
+    const existingMembers: WorkspaceMember[] = Array.isArray(wsData.members)
+      ? wsData.members
+      : [];
+    const alreadyMember = existingMembers.find((m) => m.uid === user.uid);
 
-    // Check if already a member
-    const existingMember = await getDoc(
-      doc(db, "workspaces", workspaceId, "members", user.uid),
-    );
-    const role: MemberRole = wsData.ownerId === user.uid ? "admin" : "guest";
-
-    if (!existingMember.exists()) {
-      // Add as guest member
-      await setDoc(doc(db, "workspaces", workspaceId, "members", user.uid), {
-        uid: user.uid,
-        email: user.email ?? "",
-        displayName: user.displayName ?? "",
-        photoURL: user.photoURL ?? "",
-        role,
-        joinedAt: serverTimestamp(),
-      });
+    if (alreadyMember) {
+      await setDoc(
+        doc(db, "users", user.uid),
+        { workspaceId },
+        { merge: true },
+      );
+      await loadWorkspace(user.uid, user);
+      return { workspaceName: wsData.name, role: alreadyMember.role };
     }
 
-    // Save workspaceId to user
-    await setDoc(
-      doc(db, "users", user.uid),
-      {
-        email: user.email ?? "",
-        displayName: user.displayName ?? "",
-        photoURL: user.photoURL ?? "",
-        workspaceId,
-      },
-      { merge: true },
-    );
-
-    await loadWorkspace(user.uid);
+    const role: MemberRole = wsData.ownerId === user.uid ? "admin" : "guest";
+    const newMember: WorkspaceMember = {
+      uid: user.uid,
+      email: user.email ?? "",
+      displayName: user.displayName ?? "",
+      photoURL: user.photoURL ?? "",
+      role,
+      joinedAt: new Date().toISOString(),
+    };
+    await updateDoc(doc(db, "workspaces", workspaceId), {
+      members: arrayUnion(newMember),
+    });
+    await setDoc(doc(db, "users", user.uid), { workspaceId }, { merge: true });
+    await loadWorkspace(user.uid, user);
     return { workspaceName: wsData.name, role };
   };
 
   const updateMemberRole = async (uid: string, role: MemberRole) => {
     if (!workspace) return;
-    await updateDoc(doc(db, "workspaces", workspace.id, "members", uid), {
-      role,
+    const updatedMembers = members.map((m) =>
+      m.uid === uid ? { ...m, role } : m,
+    );
+    await updateDoc(doc(db, "workspaces", workspace.id), {
+      members: updatedMembers,
     });
-    setMembers((prev) => prev.map((m) => (m.uid === uid ? { ...m, role } : m)));
+    setMembers(updatedMembers);
   };
 
   const removeMember = async (uid: string) => {
     if (!workspace) return;
-    const { deleteDoc } = await import("firebase/firestore");
-    await deleteDoc(doc(db, "workspaces", workspace.id, "members", uid));
+    const member = members.find((m) => m.uid === uid);
+    if (!member) return;
+    await updateDoc(doc(db, "workspaces", workspace.id), {
+      members: arrayRemove(member),
+    });
     setMembers((prev) => prev.filter((m) => m.uid !== uid));
   };
 
