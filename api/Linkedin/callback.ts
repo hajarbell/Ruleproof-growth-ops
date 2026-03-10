@@ -6,6 +6,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (error || !code) {
     return res.redirect(`${APP_URL}/linkedin?error=${error || "no_code"}`);
+    console.log(
+      "Error during LinkedIn OAuth callback:",
+      error || "No code provided",
+    );
   }
 
   try {
