@@ -5,7 +5,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const APP_URL = process.env.APP_URL || "http://localhost:8080";
 
   if (error || !code) {
-    return res.redirect(`${APP_URL}/linkedin?error=${error || "no_code"}`);
     console.log(
       "Error during LinkedIn OAuth callback:",
       error || "No code provided",

@@ -1,11 +1,46 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Loader2, Users, CheckCircle, AlertCircle, LogIn } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import {
+  Loader2,
+  Users,
+  CheckCircle,
+  AlertCircle,
+  LogIn,
+  Shield,
+  Star,
+  User as UserIcon,
+} from "lucide-react";
+import { useAuth, MemberRole } from "@/contexts/AuthContext";
+
+const ROLE_INFO = {
+  admin: {
+    label: "Admin",
+    desc: "Full access to everything",
+    icon: Shield,
+    color: "text-primary",
+    bg: "bg-primary/10",
+  },
+  vip: {
+    label: "VIP",
+    desc: "No Leads, Scrapers, Campaigns",
+    icon: Star,
+    color: "text-amber-500",
+    bg: "bg-amber-500/10",
+  },
+  guest: {
+    label: "Guest",
+    desc: "Content Studio only",
+    icon: UserIcon,
+    color: "text-muted-foreground",
+    bg: "bg-muted",
+  },
+};
 
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
+  const [searchParams] = useSearchParams();
+  const role = (searchParams.get("role") ?? "guest") as MemberRole;
   const { user, joinWorkspaceByToken, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState<
@@ -14,11 +49,13 @@ export default function InvitePage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
+  const roleInfo = ROLE_INFO[role] ?? ROLE_INFO.guest;
+
   const doJoin = async () => {
     if (!token) return;
     setStatus("joining");
     try {
-      const result = await joinWorkspaceByToken(token);
+      const result = await joinWorkspaceByToken(token, role);
       setWorkspaceName(result.workspaceName);
       setStatus("success");
       setTimeout(() => navigate("/"), 2000);
@@ -28,11 +65,8 @@ export default function InvitePage() {
     }
   };
 
-  // If already logged in when page loads, join immediately
   useEffect(() => {
-    if (user && status === "idle") {
-      doJoin();
-    }
+    if (user && status === "idle") doJoin();
   }, [user]);
 
   const handleGoogle = async () => {
@@ -67,10 +101,25 @@ export default function InvitePage() {
               <h1 className="text-2xl font-bold text-foreground mb-2">
                 You've been invited!
               </h1>
-              <p className="text-muted-foreground mb-6 text-sm">
-                Sign in to join the <strong>RuProof Growth OS</strong>{" "}
-                workspace.
+              <p className="text-muted-foreground mb-4 text-sm">
+                You're joining <strong>RuProof Growth OS</strong> as:
               </p>
+
+              {/* Role badge */}
+              <div
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${roleInfo.bg} border border-border mb-6`}
+              >
+                <roleInfo.icon className={`w-4 h-4 ${roleInfo.color}`} />
+                <div className="text-left">
+                  <p className={`text-sm font-bold ${roleInfo.color}`}>
+                    {roleInfo.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {roleInfo.desc}
+                  </p>
+                </div>
+              </div>
+
               <button
                 onClick={handleGoogle}
                 className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm font-medium text-foreground mb-3"
@@ -98,7 +147,9 @@ export default function InvitePage() {
               <p className="text-xs text-muted-foreground">
                 Or{" "}
                 <button
-                  onClick={() => navigate(`/login?invite=${token}`)}
+                  onClick={() =>
+                    navigate(`/login?invite=${token}&role=${role}`)
+                  }
                   className="text-primary hover:underline"
                 >
                   sign in with email
@@ -149,7 +200,8 @@ export default function InvitePage() {
                 onClick={() => navigate("/login")}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-medium mx-auto"
               >
-                <LogIn className="w-4 h-4" /> Go to Login
+                <LogIn className="w-4 h-4" />
+                Go to Login
               </button>
             </div>
           )}

@@ -71,6 +71,7 @@ interface AuthContextType {
   generateNewInviteToken: () => Promise<string>;
   joinWorkspaceByToken: (
     token: string,
+    role?: MemberRole,
   ) => Promise<{ workspaceName: string; role: MemberRole }>;
   updateMemberRole: (uid: string, role: MemberRole) => Promise<void>;
   removeMember: (uid: string) => Promise<void>;
@@ -261,6 +262,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const joinWorkspaceByToken = async (
     token: string,
+    invitedRole?: MemberRole,
   ): Promise<{ workspaceName: string; role: MemberRole }> => {
     if (!user) throw new Error("Not logged in");
     const q = query(
@@ -288,7 +290,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { workspaceName: wsData.name, role: alreadyMember.role };
     }
 
-    const role: MemberRole = wsData.ownerId === user.uid ? "admin" : "guest";
+    const role: MemberRole =
+      wsData.ownerId === user.uid ? "admin" : (invitedRole ?? "guest");
     const newMember: WorkspaceMember = {
       uid: user.uid,
       email: user.email ?? "",

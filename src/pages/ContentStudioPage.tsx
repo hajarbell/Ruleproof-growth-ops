@@ -672,7 +672,7 @@ function AddPostModal({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block flex items-center gap-1">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
                     <Link2 className="w-3 h-3" />
                     Post URL
                   </label>
