@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
@@ -15,6 +15,11 @@ import {
   Loader2,
   Linkedin,
   BarChart2,
+  Building2,
+  User,
+  ChevronUp,
+  ChevronDown,
+  Trash2,
 } from "lucide-react";
 import {
   collection,
@@ -24,6 +29,8 @@ import {
   deleteDoc,
   doc,
   serverTimestamp,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -90,70 +97,168 @@ function getLinkedInAuthUrl(state: string) {
   return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
 }
 
-// ─── Stat Mini Card ───────────────────────────────────────────────────────────
-function StatCard({
-  value,
-  label,
-  icon: Icon,
-  positive,
-}: {
-  value: string;
-  label: string;
-  icon: any;
-  positive?: boolean;
-}) {
+// ─── Mini Sparkline Chart ─────────────────────────────────────────────────────
+function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
+  if (posts.length < 2) return null;
+  const sorted = [...posts].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+  const vals = sorted.map((p) => p.views);
+  const max = Math.max(...vals);
+  const min = Math.min(...vals);
+  const range = max - min || 1;
+  const W = 120,
+    H = 36,
+    pad = 4;
+  const points = vals
+    .map((v, i) => {
+      const x = pad + (i / (vals.length - 1)) * (W - pad * 2);
+      const y = H - pad - ((v - min) / range) * (H - pad * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const areaPoints = `${pad},${H - pad} ` + points + ` ${W - pad},${H - pad}`;
   return (
-    <div className="flex flex-col gap-1 p-4 rounded-2xl bg-background/60 border border-border/60">
-      <div className="flex items-center gap-1.5 text-muted-foreground mb-1">
-        <Icon className="w-3.5 h-3.5" />
-        <span className="text-xs font-medium uppercase tracking-wider">
-          {label}
-        </span>
+    <svg width={W} height={H} className="overflow-visible">
+      <defs>
+        <linearGradient
+          id={`grad-${color.replace("#", "")}`}
+          x1="0"
+          y1="0"
+          x2="0"
+          y2="1"
+        >
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon
+        points={areaPoints}
+        fill={`url(#grad-${color.replace("#", "")})`}
+      />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx={points.split(" ").at(-1)?.split(",")[0]}
+        cy={points.split(" ").at(-1)?.split(",")[1]}
+        r="3"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+// ─── Growth Bar Chart ─────────────────────────────────────────────────────────
+function GrowthChart({
+  posts,
+  color,
+}: {
+  posts: LinkedInPost[];
+  color: string;
+}) {
+  if (!posts.length)
+    return (
+      <div className="h-40 flex items-center justify-center text-xs text-muted-foreground">
+        No posts logged yet
       </div>
-      <p
-        className={`text-2xl font-bold tracking-tight ${positive === true ? "text-emerald-500" : positive === false ? "text-red-400" : "text-foreground"}`}
-      >
-        {value}
-      </p>
+    );
+  const sorted = [...posts]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .slice(-8);
+  const maxViews = Math.max(...sorted.map((p) => p.views), 1);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-end gap-1.5 h-28">
+        {sorted.map((post, i) => {
+          const h = Math.max(8, (post.views / maxViews) * 100);
+          return (
+            <div
+              key={post.id}
+              className="flex-1 flex flex-col items-center gap-1 group relative"
+            >
+              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[10px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-soft pointer-events-none">
+                <p className="font-semibold text-foreground truncate max-w-[120px]">
+                  {post.title}
+                </p>
+                <p className="text-muted-foreground">
+                  {post.views.toLocaleString()} views
+                </p>
+                <p className="text-muted-foreground">
+                  {post.likes} 👍 {post.comments} 💬 {post.reposts} 🔁
+                </p>
+              </div>
+              <div
+                className="w-full rounded-t-md transition-all duration-500"
+                style={{
+                  height: `${h}%`,
+                  backgroundColor: color,
+                  opacity: 0.7 + (i / sorted.length) * 0.3,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-1.5">
+        {sorted.map((post) => (
+          <div
+            key={post.id}
+            className="flex-1 text-[9px] text-muted-foreground text-center truncate"
+          >
+            {post.date.split("-").slice(1).join("/")}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ─── Edit Modal ───────────────────────────────────────────────────────────────
-function EditModal({
+// ─── Edit / Add Account Modal ─────────────────────────────────────────────────
+function AccountModal({
   onClose,
   onSave,
   existing,
 }: {
   onClose: () => void;
   onSave: (acc: Omit<LinkedInAccount, "id" | "createdAt">) => Promise<void>;
-  existing: LinkedInAccount;
+  existing?: LinkedInAccount;
 }) {
   const [saving, setSaving] = useState(false);
-  const [name, setName] = useState(existing.name);
-  const [headline, setHeadline] = useState(existing.headline);
-  const [profileUrl, setProfileUrl] = useState(existing.profileUrl);
-  const [type, setType] = useState<"personal" | "company">(existing.type);
-  const [followers, setFollowers] = useState(String(existing.followers));
-  const [followersGrowth, setFollowersGrowth] = useState(
-    String(existing.followersGrowth),
+  const [name, setName] = useState(existing?.name ?? "");
+  const [headline, setHeadline] = useState(existing?.headline ?? "");
+  const [profileUrl, setProfileUrl] = useState(existing?.profileUrl ?? "");
+  const [type, setType] = useState<"personal" | "company">(
+    existing?.type ?? "personal",
   );
-  const [avatarColor, setAvatarColor] = useState(existing.avatarColor);
+  const [followers, setFollowers] = useState(String(existing?.followers ?? ""));
+  const [followersGrowth, setFollowersGrowth] = useState(
+    String(existing?.followersGrowth ?? ""),
+  );
+  const [avatarColor, setAvatarColor] = useState(
+    existing?.avatarColor ?? AVATAR_COLORS[0],
+  );
 
   const handleSave = async () => {
+    if (!name.trim()) return;
     setSaving(true);
     await onSave({
-      name,
-      headline,
-      profileUrl,
+      name: name.trim(),
+      headline: headline.trim(),
+      profileUrl: profileUrl.trim(),
       type,
       followers: parseInt(followers) || 0,
       followersGrowth: parseInt(followersGrowth) || 0,
-      avatarUrl: existing.avatarUrl,
+      avatarUrl: existing?.avatarUrl ?? "",
       avatarInitials: initials(name),
       avatarColor,
-      linkedinId: existing.linkedinId,
-      posts: existing.posts,
+      linkedinId: existing?.linkedinId ?? "",
+      posts: existing?.posts ?? [],
     });
     onClose();
   };
@@ -174,10 +279,10 @@ function EditModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-foreground">
-                Edit Account
+                {existing ? "Edit Account" : "Add Account"}
               </h2>
               <p className="text-xs text-muted-foreground">
-                Update profile & stats
+                Profile details & stats
               </p>
             </div>
           </div>
@@ -190,30 +295,50 @@ function EditModal({
         </div>
 
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          {/* Type toggle */}
           <div className="flex gap-2 p-1 bg-muted rounded-xl">
             {(["personal", "company"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setType(t)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all capitalize ${type === t ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${type === t ? "bg-card shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                {t === "personal" ? "👤 Personal" : "🏢 Company"}
+                {t === "personal" ? (
+                  <>
+                    <User className="w-3.5 h-3.5" />
+                    Personal
+                  </>
+                ) : (
+                  <>
+                    <Building2 className="w-3.5 h-3.5" />
+                    Company Page
+                  </>
+                )}
               </button>
             ))}
           </div>
+
+          {type === "company" && (
+            <div className="px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
+              💡 Company pages can't be connected via OAuth — fill in manually
+              and log post stats.
+            </div>
+          )}
 
           {[
             {
               label: "Name",
               val: name,
               set: setName,
-              placeholder: "Hajar Bellarbia",
+              placeholder:
+                type === "personal" ? "Hajar Bellarbia" : "RuProof AI",
             },
             {
-              label: "Headline",
+              label: "Headline / Bio",
               val: headline,
               set: setHeadline,
-              placeholder: "Building RuProof AI | LinkedIn Growth for B2B",
+              placeholder:
+                "Building RuProof AI | LinkedIn Growth for B2B Founders",
             },
             {
               label: "Profile URL",
@@ -230,7 +355,7 @@ function EditModal({
                 value={val}
                 onChange={(e) => set(e.target.value)}
                 placeholder={placeholder}
-                className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring transition-shadow"
+                className="w-full px-4 py-2.5 rounded-xl bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
           ))}
@@ -279,21 +404,21 @@ function EditModal({
         <div className="flex gap-3 px-6 py-4 border-t border-border bg-muted/20">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+            className="flex-1 py-2.5 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-muted"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={saving}
-            className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-60 transition-opacity"
+            disabled={saving || !name.trim()}
+            className="flex-1 py-2.5 rounded-xl gradient-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 disabled:opacity-60"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <Check className="w-4 h-4" />
             )}
-            Save Changes
+            {existing ? "Save Changes" : "Add Account"}
           </button>
         </div>
       </motion.div>
@@ -314,7 +439,7 @@ function AddPostModal({
   const [comments, setComments] = useState("");
   const [reposts, setReposts] = useState("");
   const [views, setViews] = useState("");
-  const [date, setDate] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
@@ -327,7 +452,7 @@ function AddPostModal({
       comments: parseInt(comments) || 0,
       reposts: parseInt(reposts) || 0,
       views: parseInt(views) || 0,
-      date: date || new Date().toLocaleDateString(),
+      date,
     });
     onClose();
   };
@@ -374,7 +499,7 @@ function AddPostModal({
               ["👍 Likes", likes, setLikes],
               ["💬 Comments", comments, setComments],
               ["🔁 Reposts", reposts, setReposts],
-              ["👁 Views", views, setViews],
+              ["👁 Impressions", views, setViews],
             ].map(([label, val, set]: any) => (
               <div key={label}>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
@@ -419,7 +544,7 @@ function AddPostModal({
             ) : (
               <Plus className="w-4 h-4" />
             )}{" "}
-            Add Post
+            Log Post
           </button>
         </div>
       </motion.div>
@@ -449,10 +574,13 @@ function AccountCard({
           account.posts.reduce((s, p) => s + p.views, 0) / account.posts.length,
         )
       : 0;
-  const topPost = account.posts?.reduce(
-    (best, p) => (p.views > (best?.views ?? 0) ? p : best),
-    account.posts?.[0] ?? null,
-  );
+  const totalEngagement =
+    account.posts?.reduce((s, p) => s + p.likes + p.comments + p.reposts, 0) ??
+    0;
+  const trend =
+    account.posts?.length >= 2
+      ? account.posts.at(-1)!.views - account.posts.at(-2)!.views
+      : 0;
 
   return (
     <motion.div
@@ -460,26 +588,23 @@ function AccountCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
       onClick={onSelect}
-      className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 group ${
-        isSelected
-          ? "ring-2 ring-primary shadow-lg shadow-primary/10"
-          : "hover:shadow-md hover:-translate-y-0.5"
-      }`}
+      className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 group ${isSelected ? "ring-2 ring-primary shadow-lg shadow-primary/10" : "hover:shadow-md hover:-translate-y-0.5"}`}
     >
-      <div className="glass p-6">
+      <div className="glass p-5">
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#0077b5]/60 via-[#0077b5]/20 to-transparent" />
 
-        <div className="flex items-start justify-between mb-5">
-          <div className="flex items-center gap-3.5">
+        {/* Header */}
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
             {account.avatarUrl ? (
               <img
                 src={account.avatarUrl}
                 alt={account.name}
-                className="w-14 h-14 rounded-2xl object-cover flex-shrink-0 shadow-sm"
+                className="w-12 h-12 rounded-2xl object-cover flex-shrink-0 shadow-sm"
               />
             ) : (
               <div
-                className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-bold text-lg flex-shrink-0 shadow-sm"
+                className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-base flex-shrink-0 shadow-sm"
                 style={{
                   background: `linear-gradient(135deg, ${account.avatarColor}, ${account.avatarColor}99)`,
                 }}
@@ -489,25 +614,25 @@ function AccountCard({
             )}
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-bold text-base text-foreground leading-tight">
+                <h3 className="font-bold text-sm text-foreground leading-tight">
                   {account.name}
                 </h3>
                 <span
-                  className={`text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide ${
-                    account.type === "personal"
-                      ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
-                      : "bg-sky-500/10 text-sky-400 border border-sky-500/20"
-                  }`}
+                  className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wide flex items-center gap-0.5 ${account.type === "personal" ? "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20" : "bg-sky-500/10 text-sky-400 border border-sky-500/20"}`}
                 >
+                  {account.type === "personal" ? (
+                    <User className="w-2.5 h-2.5" />
+                  ) : (
+                    <Building2 className="w-2.5 h-2.5" />
+                  )}
                   {account.type}
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground mt-0.5 leading-snug line-clamp-2">
-                {account.headline}
+              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+                {account.headline || "No headline — click edit to add"}
               </p>
             </div>
           </div>
-
           <div
             className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-2 flex-shrink-0"
             onClick={(e) => e.stopPropagation()}
@@ -532,49 +657,83 @@ function AccountCard({
               onClick={onDelete}
               className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors text-muted-foreground hover:text-red-400"
             >
-              <X className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5 mb-4">
-          <StatCard
-            value={account.followers.toLocaleString()}
-            label="Followers"
-            icon={Users}
-          />
-          <StatCard
-            value={`${account.followersGrowth > 0 ? "+" : ""}${account.followersGrowth}`}
-            label="This month"
-            icon={TrendingUp}
-            positive={account.followersGrowth > 0}
-          />
-          <StatCard
-            value={avgViews > 0 ? avgViews.toLocaleString() : "—"}
-            label="Avg views"
-            icon={Eye}
-          />
+        {/* Stats row */}
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {[
+            {
+              label: "Followers",
+              value: account.followers.toLocaleString(),
+              icon: Users,
+            },
+            {
+              label: "Growth",
+              value: `${account.followersGrowth > 0 ? "+" : ""}${account.followersGrowth}`,
+              icon: TrendingUp,
+              positive: account.followersGrowth > 0,
+            },
+            {
+              label: "Avg Views",
+              value: avgViews > 0 ? avgViews.toLocaleString() : "—",
+              icon: Eye,
+            },
+            {
+              label: "Engagement",
+              value:
+                totalEngagement > 0 ? totalEngagement.toLocaleString() : "—",
+              icon: Heart,
+            },
+          ].map(({ label, value, icon: Icon, positive }) => (
+            <div
+              key={label}
+              className="flex flex-col gap-0.5 p-2.5 rounded-xl bg-background/60 border border-border/60"
+            >
+              <Icon className="w-3 h-3 text-muted-foreground mb-0.5" />
+              <span
+                className={`text-sm font-bold ${positive ? "text-emerald-500" : "text-foreground"}`}
+              >
+                {value}
+              </span>
+              <span className="text-[9px] text-muted-foreground uppercase tracking-wide">
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
 
-        {topPost ? (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/40 border border-border/50">
-            <span className="text-sm">🏆</span>
-            <span className="text-xs text-muted-foreground truncate flex-1">
-              <span className="text-foreground font-medium">
-                {topPost.title}
-              </span>
-            </span>
-            <span className="text-xs font-semibold text-primary flex-shrink-0">
-              {topPost.views.toLocaleString()} views
-            </span>
+        {/* Sparkline + trend */}
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1">
+              Impressions trend
+            </p>
+            <Sparkline
+              posts={account.posts ?? []}
+              color={account.avatarColor}
+            />
           </div>
-        ) : (
-          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/30 border border-dashed border-border/50">
-            <span className="text-xs text-muted-foreground">
-              No posts logged yet — click to add analytics
-            </span>
-          </div>
-        )}
+          {trend !== 0 && (
+            <div
+              className={`flex items-center gap-1 text-xs font-semibold ${trend > 0 ? "text-emerald-500" : "text-red-400"}`}
+            >
+              {trend > 0 ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+              {Math.abs(trend).toLocaleString()} vs prev
+            </div>
+          )}
+          {account.posts?.length === 0 && (
+            <p className="text-[10px] text-muted-foreground italic">
+              No posts yet
+            </p>
+          )}
+        </div>
 
         {isSelected && (
           <div className="absolute bottom-3 right-3">
@@ -597,20 +756,24 @@ export default function LinkedInPage() {
   const [editingAccount, setEditingAccount] = useState<LinkedInAccount | null>(
     null,
   );
+  const [showAddManual, setShowAddManual] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
     null,
   );
   const [showAddPost, setShowAddPost] = useState(false);
   const [oauthLoading, setOauthLoading] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const [toast, setToast] = useState<{
     msg: string;
     type: "success" | "error";
   } | null>(null);
+  const oauthProcessed = useRef(false);
 
   const colRef = workspace
     ? collection(db, "workspaces", workspace.id, "linkedinAccounts")
     : null;
 
+  // ── Load accounts from Firestore ──
   useEffect(() => {
     if (!colRef) {
       setLoading(false);
@@ -627,9 +790,12 @@ export default function LinkedInPage() {
     });
   }, [workspace?.id]);
 
+  // ── Handle OAuth callback — deduplicated with ref ──
   useEffect(() => {
+    if (oauthProcessed.current) return;
     const linkedinName = searchParams.get("linkedin_name");
     const error = searchParams.get("error");
+    const linkedinId = searchParams.get("linkedin_id");
 
     if (error) {
       setToast({
@@ -640,42 +806,74 @@ export default function LinkedInPage() {
       return;
     }
 
-    if (linkedinName && workspace && colRef) {
-      const newAcc = {
-        name: linkedinName,
-        headline: searchParams.get("linkedin_headline") || "",
-        avatarUrl: searchParams.get("linkedin_avatar") || "",
-        avatarInitials: initials(linkedinName),
-        avatarColor:
-          AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-        type: "personal" as const,
-        followers: 0,
-        followersGrowth: 0,
-        profileUrl: "",
-        linkedinId: searchParams.get("linkedin_id") || "",
-        posts: [],
-      };
+    if (linkedinName && workspace && colRef && !oauthProcessed.current) {
+      oauthProcessed.current = true;
 
-      addDoc(colRef, { ...newAcc, createdAt: serverTimestamp() }).then(
-        (docRef) => {
-          const saved: LinkedInAccount = {
-            id: docRef.id,
-            ...newAcc,
-            createdAt: null,
+      // Check for duplicate by linkedinId
+      getDocs(query(colRef, where("linkedinId", "==", linkedinId || ""))).then(
+        (snap) => {
+          if (!snap.empty && linkedinId) {
+            // Already exists — just show toast and open edit
+            const existing = {
+              id: snap.docs[0].id,
+              ...snap.docs[0].data(),
+            } as LinkedInAccount;
+            setSelectedAccountId(existing.id);
+            setEditingAccount(existing);
+            setToast({
+              msg: `✅ ${linkedinName} already connected — update your details.`,
+              type: "success",
+            });
+            setSearchParams({});
+            return;
+          }
+
+          // New account
+          const newAcc = {
+            name: linkedinName,
+            headline: searchParams.get("linkedin_headline") || "",
+            avatarUrl: searchParams.get("linkedin_avatar") || "",
+            avatarInitials: initials(linkedinName),
+            avatarColor:
+              AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+            type: "personal" as const,
+            followers: 0,
+            followersGrowth: 0,
+            profileUrl: "",
+            linkedinId: linkedinId || "",
+            posts: [],
           };
-          setAccounts((prev) => [...prev, saved]);
-          setSelectedAccountId(docRef.id);
-          setEditingAccount(saved);
-          setToast({
-            msg: `✅ ${linkedinName} connected! Add your follower count.`,
-            type: "success",
-          });
+
+          addDoc(colRef, { ...newAcc, createdAt: serverTimestamp() }).then(
+            (docRef) => {
+              const saved: LinkedInAccount = {
+                id: docRef.id,
+                ...newAcc,
+                createdAt: null,
+              };
+              setAccounts((prev) => [...prev, saved]);
+              setSelectedAccountId(docRef.id);
+              setEditingAccount(saved);
+              setToast({
+                msg: `✅ ${linkedinName} connected! Add your headline & follower count.`,
+                type: "success",
+              });
+            },
+          );
+
+          setSearchParams({});
         },
       );
-
-      setSearchParams({});
     }
   }, [searchParams, workspace?.id]);
+
+  // Auto-dismiss toast
+  useEffect(() => {
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [toast]);
 
   const selectedAccount =
     accounts.find((a) => a.id === selectedAccountId) ?? null;
@@ -684,6 +882,7 @@ export default function LinkedInPage() {
   );
 
   const handleConnectLinkedIn = () => {
+    oauthProcessed.current = false;
     setOauthLoading(true);
     window.location.href = getLinkedInAuthUrl(workspace?.id ?? "default");
   };
@@ -706,6 +905,20 @@ export default function LinkedInPage() {
       prev.map((a) => (a.id === editingAccount.id ? { ...a, ...acc } : a)),
     );
     setEditingAccount(null);
+  };
+
+  const handleSaveNew = async (
+    acc: Omit<LinkedInAccount, "id" | "createdAt">,
+  ) => {
+    if (!workspace || !colRef) return;
+    const docRef = await addDoc(colRef, {
+      ...acc,
+      createdAt: serverTimestamp(),
+    });
+    const saved: LinkedInAccount = { id: docRef.id, ...acc, createdAt: null };
+    setAccounts((prev) => [...prev, saved]);
+    setSelectedAccountId(docRef.id);
+    setToast({ msg: `✅ ${acc.name} added!`, type: "success" });
   };
 
   const handleDelete = async (id: string) => {
@@ -738,6 +951,26 @@ export default function LinkedInPage() {
     );
   };
 
+  const handleDeletePost = async (postId: string) => {
+    if (!selectedAccount || !workspace) return;
+    const updated = selectedAccount.posts.filter((p) => p.id !== postId);
+    await updateDoc(
+      doc(
+        db,
+        "workspaces",
+        workspace.id,
+        "linkedinAccounts",
+        selectedAccount.id,
+      ),
+      { posts: updated },
+    );
+    setAccounts((prev) =>
+      prev.map((a) =>
+        a.id === selectedAccount.id ? { ...a, posts: updated } : a,
+      ),
+    );
+  };
+
   const totalFollowers = accounts.reduce((s, a) => s + a.followers, 0);
   const totalGrowth = accounts.reduce((s, a) => s + a.followersGrowth, 0);
   const totalPosts = accounts.reduce((s, a) => s + (a.posts?.length ?? 0), 0);
@@ -751,11 +984,7 @@ export default function LinkedInPage() {
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            className={`fixed top-6 right-6 z-50 rounded-2xl px-5 py-3.5 shadow-2xl text-sm font-medium flex items-center gap-3 border ${
-              toast.type === "success"
-                ? "bg-card border-emerald-500/30"
-                : "bg-card border-red-500/30"
-            }`}
+            className={`fixed top-6 right-6 z-50 rounded-2xl px-5 py-3.5 shadow-2xl text-sm font-medium flex items-center gap-3 border ${toast.type === "success" ? "bg-card border-emerald-500/30" : "bg-card border-red-500/30"}`}
           >
             <span>{toast.msg}</span>
             <button
@@ -771,10 +1000,16 @@ export default function LinkedInPage() {
       {/* Modals */}
       <AnimatePresence>
         {editingAccount && (
-          <EditModal
+          <AccountModal
             existing={editingAccount}
             onClose={() => setEditingAccount(null)}
             onSave={handleSaveEdit}
+          />
+        )}
+        {showAddManual && (
+          <AccountModal
+            onClose={() => setShowAddManual(false)}
+            onSave={handleSaveNew}
           />
         )}
         {showAddPost && (
@@ -785,7 +1020,7 @@ export default function LinkedInPage() {
         )}
       </AnimatePresence>
 
-      {/* Page header */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2.5 mb-1">
@@ -797,21 +1032,71 @@ export default function LinkedInPage() {
             </h1>
           </div>
           <p className="text-base text-muted-foreground ml-10">
-            Manage accounts, track growth, and publish content.
+            Manage accounts, track growth, and log post analytics.
           </p>
         </div>
-        <button
-          onClick={handleConnectLinkedIn}
-          disabled={oauthLoading}
-          className="gradient-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-soft hover:opacity-90 transition-opacity disabled:opacity-60"
-        >
-          {oauthLoading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
+
+        {/* Add account dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setShowAddMenu(!showAddMenu)}
+            className="gradient-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 shadow-soft hover:opacity-90"
+          >
             <Plus className="w-4 h-4" />
-          )}
-          Connect Account
-        </button>
+            Add Account
+          </button>
+          <AnimatePresence>
+            {showAddMenu && (
+              <motion.div
+                initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4 }}
+                className="absolute right-0 top-full mt-2 bg-card border border-border rounded-xl shadow-soft overflow-hidden z-20 w-56"
+              >
+                <button
+                  onClick={() => {
+                    setShowAddMenu(false);
+                    handleConnectLinkedIn();
+                  }}
+                  disabled={oauthLoading}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors text-left"
+                >
+                  {oauthLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-[#0077b5]" />
+                  ) : (
+                    <Linkedin className="w-4 h-4 text-[#0077b5]" />
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Connect via OAuth
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Personal profile
+                    </p>
+                  </div>
+                </button>
+                <div className="border-t border-border" />
+                <button
+                  onClick={() => {
+                    setShowAddMenu(false);
+                    setShowAddManual(true);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors text-left"
+                >
+                  <Building2 className="w-4 h-4 text-sky-400" />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Add manually
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Company page or manual
+                    </p>
+                  </div>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* Aggregate stats */}
@@ -884,21 +1169,30 @@ export default function LinkedInPage() {
             No accounts connected yet
           </h3>
           <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
-            Connect your LinkedIn profile or company page to start tracking
-            growth and analytics.
+            Connect your personal LinkedIn via OAuth, or add a company page
+            manually.
           </p>
-          <button
-            onClick={handleConnectLinkedIn}
-            disabled={oauthLoading}
-            className="gradient-primary text-primary-foreground px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2 hover:opacity-90 transition-opacity"
-          >
-            {oauthLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Plus className="w-4 h-4" />
-            )}
-            Connect LinkedIn Account
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={handleConnectLinkedIn}
+              disabled={oauthLoading}
+              className="gradient-primary text-primary-foreground px-6 py-3 rounded-xl font-semibold inline-flex items-center gap-2 hover:opacity-90"
+            >
+              {oauthLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Linkedin className="w-4 h-4" />
+              )}
+              Connect LinkedIn
+            </button>
+            <button
+              onClick={() => setShowAddManual(true)}
+              className="px-6 py-3 rounded-xl border border-border font-semibold inline-flex items-center gap-2 hover:bg-muted text-foreground text-sm"
+            >
+              <Building2 className="w-4 h-4" />
+              Add Company Page
+            </button>
+          </div>
         </motion.div>
       )}
 
@@ -919,105 +1213,123 @@ export default function LinkedInPage() {
         </div>
       )}
 
-      {/* Posts table */}
+      {/* Selected account — growth chart + posts table */}
       {!loading && selectedAccount && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass rounded-2xl overflow-hidden border border-border/50 shadow-soft"
+          className="space-y-4"
         >
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
-            <div className="flex items-center gap-3">
-              {selectedAccount.avatarUrl ? (
-                <img
-                  src={selectedAccount.avatarUrl}
-                  className="w-8 h-8 rounded-xl object-cover"
-                  alt=""
-                />
-              ) : (
-                <div
-                  className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold"
-                  style={{
-                    background: `linear-gradient(135deg, ${selectedAccount.avatarColor}, ${selectedAccount.avatarColor}99)`,
-                  }}
-                >
-                  {selectedAccount.avatarInitials}
+          {/* Growth chart */}
+          <div className="glass rounded-2xl p-6 border border-border/50 shadow-soft">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                {selectedAccount.avatarUrl ? (
+                  <img
+                    src={selectedAccount.avatarUrl}
+                    className="w-8 h-8 rounded-xl object-cover"
+                    alt=""
+                  />
+                ) : (
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold"
+                    style={{
+                      background: `linear-gradient(135deg, ${selectedAccount.avatarColor}, ${selectedAccount.avatarColor}99)`,
+                    }}
+                  >
+                    {selectedAccount.avatarInitials}
+                  </div>
+                )}
+                <div>
+                  <p className="font-semibold text-sm text-foreground">
+                    {selectedAccount.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Impressions over time
+                  </p>
                 </div>
-              )}
-              <div>
-                <p className="font-semibold text-sm text-foreground">
-                  {selectedAccount.name}
-                </p>
-                <p className="text-xs text-muted-foreground">Post Analytics</p>
               </div>
+              <button
+                onClick={() => setShowAddPost(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border/60 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Log Post
+              </button>
             </div>
-            <button
-              onClick={() => setShowAddPost(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-border/60 text-sm font-medium text-foreground hover:bg-muted transition-colors"
-            >
-              <Plus className="w-4 h-4" /> Add Post
-            </button>
+            <GrowthChart
+              posts={selectedAccount.posts ?? []}
+              color={selectedAccount.avatarColor}
+            />
           </div>
 
-          {sortedPosts.length === 0 ? (
-            <div className="py-16 text-center text-muted-foreground text-sm">
-              No posts yet — add your first post analytics above.
+          {/* Posts table */}
+          <div className="glass rounded-2xl overflow-hidden border border-border/50 shadow-soft">
+            <div className="px-6 py-4 border-b border-border/50">
+              <h3 className="font-semibold text-sm text-foreground">
+                All Posts
+              </h3>
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border/50 bg-muted/30">
-                    <th className="text-left px-6 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Post
-                    </th>
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      <Heart className="w-3.5 h-3.5 inline" />
-                    </th>
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      <MessageSquare className="w-3.5 h-3.5 inline" />
-                    </th>
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      <Repeat2 className="w-3.5 h-3.5 inline" />
-                    </th>
-                    <th className="text-center px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      <Eye className="w-3.5 h-3.5 inline" /> Views
-                    </th>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Date
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedPosts.map((post, i) => (
-                    <tr
-                      key={post.id}
-                      className="border-b border-border/30 hover:bg-muted/20 transition-colors"
-                    >
-                      <td className="px-6 py-4 text-sm font-medium text-foreground">
-                        {post.title}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-center text-muted-foreground">
-                        {post.likes.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-center text-muted-foreground">
-                        {post.comments.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-center text-muted-foreground">
-                        {post.reposts.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-4 text-sm text-center font-bold text-primary">
-                        {post.views.toLocaleString()}
-                      </td>
-                      <td className="px-4 py-4 text-xs text-muted-foreground">
-                        {post.date}
-                      </td>
+            {sortedPosts.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-sm">
+                No posts logged yet — click "Log Post" above.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border/50 bg-muted/30">
+                      {["Post", "👍", "💬", "🔁", "👁 Views", "Date", ""].map(
+                        (h) => (
+                          <th
+                            key={h}
+                            className={`px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider ${h === "Post" ? "text-left" : "text-center"}`}
+                          >
+                            {h}
+                          </th>
+                        ),
+                      )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {sortedPosts.map((post) => (
+                      <tr
+                        key={post.id}
+                        className="border-b border-border/30 hover:bg-muted/20 transition-colors"
+                      >
+                        <td className="px-4 py-3.5 text-sm font-medium text-foreground max-w-[200px] truncate">
+                          {post.title}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm text-center text-muted-foreground">
+                          {post.likes.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm text-center text-muted-foreground">
+                          {post.comments.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm text-center text-muted-foreground">
+                          {post.reposts.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm text-center font-bold text-primary">
+                          {post.views.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-3.5 text-xs text-muted-foreground text-center">
+                          {post.date}
+                        </td>
+                        <td className="px-4 py-3.5 text-center">
+                          <button
+                            onClick={() => handleDeletePost(post.id)}
+                            className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </motion.div>
       )}
     </div>
