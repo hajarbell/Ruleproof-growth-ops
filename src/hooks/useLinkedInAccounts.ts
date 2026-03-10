@@ -4,14 +4,6 @@ import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { LinkedInAccount } from "@/pages/LinkedInPage";
 
-/**
- * useLinkedInAccounts
- * Fetches LinkedIn accounts for the current workspace.
- * Use this in ContentStudio to populate the account picker.
- *
- * Usage:
- *   const { accounts, loading } = useLinkedInAccounts();
- */
 export function useLinkedInAccounts() {
   const { workspace } = useAuth();
   const [accounts, setAccounts] = useState<LinkedInAccount[]>([]);
@@ -29,9 +21,11 @@ export function useLinkedInAccounts() {
       "linkedinAccounts",
     );
     getDocs(colRef).then((snap) => {
-      setAccounts(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() })) as LinkedInAccount[],
-      );
+      const data = snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as LinkedInAccount[];
+      setAccounts(data);
       setLoading(false);
     });
   }, [workspace?.id]);
