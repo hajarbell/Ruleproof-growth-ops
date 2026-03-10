@@ -6,7 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 
 export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
-  const { user, workspace, joinWorkspaceByToken, signInWithGoogle } = useAuth();
+  const { user, joinWorkspaceByToken, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState<
     "idle" | "joining" | "success" | "error"
@@ -14,12 +14,7 @@ export default function InvitePage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  // If already in a workspace, go home
-  useEffect(() => {
-    if (workspace) navigate("/");
-  }, [workspace]);
-
-  const handleJoin = async () => {
+  const doJoin = async () => {
     if (!token) return;
     setStatus("joining");
     try {
@@ -33,22 +28,23 @@ export default function InvitePage() {
     }
   };
 
-  const handleGoogleThenJoin = async () => {
+  // If already logged in when page loads, join immediately
+  useEffect(() => {
+    if (user && status === "idle") {
+      doJoin();
+    }
+  }, [user]);
+
+  const handleGoogle = async () => {
     try {
+      setStatus("joining");
       await signInWithGoogle();
-      // After sign in, handleJoin will be triggered via user state
+      await doJoin();
     } catch {
-      setErrorMsg("Google sign-in failed.");
+      setErrorMsg("Sign-in failed. Please try again.");
       setStatus("error");
     }
   };
-
-  // Once user is logged in and status is idle, auto-trigger join
-  useEffect(() => {
-    if (user && status === "idle" && !workspace) {
-      handleJoin();
-    }
-  }, [user, status]);
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -58,9 +54,7 @@ export default function InvitePage() {
         className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
       >
         <div className="h-1 w-full bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))]" />
-
         <div className="p-8 text-center">
-          {/* Logo */}
           <div className="w-14 h-14 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-5 shadow-lg">
             <span className="text-xl font-bold text-primary-foreground">R</span>
           </div>
@@ -78,7 +72,7 @@ export default function InvitePage() {
                 workspace.
               </p>
               <button
-                onClick={handleGoogleThenJoin}
+                onClick={handleGoogle}
                 className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm font-medium text-foreground mb-3"
               >
                 <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -113,7 +107,7 @@ export default function InvitePage() {
             </>
           )}
 
-          {(status === "idle" && user) || status === "joining" ? (
+          {status === "joining" && (
             <div className="py-6">
               <Loader2 className="w-10 h-10 animate-spin text-primary mx-auto mb-4" />
               <p className="text-foreground font-medium">
@@ -123,7 +117,7 @@ export default function InvitePage() {
                 Just a second
               </p>
             </div>
-          ) : null}
+          )}
 
           {status === "success" && (
             <div className="py-4">
