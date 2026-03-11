@@ -17,7 +17,8 @@ export default function LoginPage() {
     setError("");
     try {
       await signInWithEmail(email, password);
-      navigate("/");
+      // Don't navigate manually — onAuthStateChanged fires, loads workspace,
+      // then RedirectIfAuth (wrapping this route) will redirect to "/" automatically.
     } catch (err: unknown) {
       const code = (err as { code?: string })?.code;
       if (

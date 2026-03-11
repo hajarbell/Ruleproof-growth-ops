@@ -280,9 +280,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // ─── Email sign-in ────────────────────────────────────────────────────────
+  // NOTE: Do NOT call loadWorkspace here — onAuthStateChanged fires after
+  // signInWithEmailAndPassword and handles workspace loading automatically.
+  // Calling loadWorkspace here too creates duplicate Firestore listeners and
+  // a race condition that breaks navigation/loading state.
   const signInWithEmail = async (email: string, password: string) => {
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    await loadWorkspace(result.user.uid, result.user);
+    await signInWithEmailAndPassword(auth, email, password);
+    // onAuthStateChanged fires next and calls loadWorkspace
   };
 
   // ─── Email sign-up ────────────────────────────────────────────────────────
