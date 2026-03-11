@@ -36,14 +36,12 @@ export default function SignupPage() {
     }
   };
 
-  const handleGoogle = async () => {
+  // Google sign-in uses a redirect (not popup) to avoid Vercel's
+  // Cross-Origin-Opener-Policy blocking the popup window.
+  const handleGoogle = () => {
     setError("");
-    try {
-      await signInWithGoogle();
-      navigate("/setup-workspace");
-    } catch {
-      setError("Google sign-in failed. Please try again.");
-    }
+    signInWithGoogle();
+    // Page will redirect away — no navigate() needed here
   };
 
   return (

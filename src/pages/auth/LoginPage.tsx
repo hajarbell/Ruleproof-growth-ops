@@ -34,14 +34,13 @@ export default function LoginPage() {
     }
   };
 
-  const handleGoogle = async () => {
+  // Google sign-in uses a redirect (not popup) to avoid Vercel's
+  // Cross-Origin-Opener-Policy blocking the popup window.
+  // After Google auth, Firebase redirects back here and onAuthStateChanged fires.
+  const handleGoogle = () => {
     setError("");
-    try {
-      await signInWithGoogle();
-      navigate("/");
-    } catch {
-      setError("Google sign-in failed. Please try again.");
-    }
+    signInWithGoogle();
+    // Page will redirect away — no navigate() needed here
   };
 
   return (

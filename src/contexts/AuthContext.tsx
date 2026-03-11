@@ -8,7 +8,8 @@ import {
 import {
   User,
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -58,7 +59,10 @@ interface AuthContextType {
   members: WorkspaceMember[];
   myRole: MemberRole | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<User | null>; // ← returns User so InvitePage can pass it directly
+  signInWithGoogle: (
+    inviteToken?: string,
+    inviteRole?: string,
+  ) => Promise<User | null>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (
     email: string,
@@ -169,22 +173,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ── Returns the Firebase User so InvitePage can pass it directly to doJoin
-  // without relying on stale React state
-  const signInWithGoogle = async (): Promise<User | null> => {
-    const result = await signInWithPopup(auth, new GoogleAuthProvider());
-    await setDoc(
-      doc(db, "users", result.user.uid),
-      {
-        email: result.user.email ?? "",
-        displayName: result.user.displayName ?? "",
-        photoURL: result.user.photoURL ?? "",
-      },
-      { merge: true },
-    );
-    await loadWorkspace(result.user.uid, result.user);
-    return result.user;
+  // Uses redirect (not popup) so it works on Vercel/COOP-restricted origins.
+  // After the redirect resolves, onAuthStateChanged fires with the user,
+  // which triggers loadWorkspace automatically. The function stores the
+  // pending invite (if any) in sessionStorage so InvitePage can pick it up
+  // after the page reloads.
+  const signInWithGoogle = async (
+    inviteToken?: string,
+    inviteRole?: string,
+  ): Promise<User | null> => {
+    if (inviteToken) {
+      sessionStorage.setItem("pendingInviteToken", inviteToken);
+      sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
+    }
+    await signInWithRedirect(auth, new GoogleAuthProvider());
+    // signInWithRedirect navigates away — code below never runs during the
+    // redirect itself. Return null as a type placeholder.
+    return null;
   };
+
+  // Called once on mount to pick up the result of a Google redirect sign-in.
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (!result?.user) return;
+        const u = result.user;
+        await setDoc(
+          doc(db, "users", u.uid),
+          {
+            email: u.email ?? "",
+            displayName: u.displayName ?? "",
+            photoURL: u.photoURL ?? "",
+          },
+          { merge: true },
+        );
+        // loadWorkspace will be called by onAuthStateChanged below
+      })
+      .catch(() => {
+        // No redirect result or error — normal page load, ignore
+      });
+  }, []);
 
   const signInWithEmail = async (email: string, password: string) => {
     const result = await signInWithEmailAndPassword(auth, email, password);

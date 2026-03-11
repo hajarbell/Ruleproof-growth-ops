@@ -43,7 +43,7 @@ export default function InvitePage() {
   const { token } = useParams<{ token: string }>();
   const [searchParams] = useSearchParams();
   const role = (searchParams.get("role") ?? "guest") as MemberRole;
-  const { user, joinWorkspaceByToken, signInWithGoogle } = useAuth();
+  const { user, loading, joinWorkspaceByToken, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState<
     "idle" | "joining" | "success" | "error"
@@ -53,23 +53,15 @@ export default function InvitePage() {
 
   const roleInfo = ROLE_INFO[role] ?? ROLE_INFO.guest;
 
-  // Accept an optional explicit user so we can call this right after
-  // signInWithGoogle() without waiting for React state to update
-  const doJoin = async (explicitUser?: typeof user) => {
+  const doJoin = async (activeUser: NonNullable<typeof user>) => {
     if (!token) return;
-    const activeUser = explicitUser ?? user;
-    if (!activeUser) {
-      setErrorMsg("Not logged in");
-      setStatus("error");
-      return;
-    }
     setStatus("joining");
     try {
       const result = await joinWorkspaceByToken(token, role);
       setWorkspaceName(result.workspaceName);
       setStatus("success");
 
-      // Notify admins
+      // Write notification for admins
       try {
         const q = query(
           collection(db, "workspaces"),
@@ -96,23 +88,41 @@ export default function InvitePage() {
     }
   };
 
-  // Auto-join if already logged in
+  // After auth loads: auto-join if user is present.
+  // Also handles post-redirect: sessionStorage has the token if Google redirect
+  // brought us here after signing in on another page.
   useEffect(() => {
-    if (user && status === "idle") doJoin(user);
-  }, [user]);
+    if (loading) return; // wait for Firebase auth to resolve
 
-  const handleGoogle = async () => {
-    try {
-      setStatus("joining");
-      // signInWithGoogle should return the Firebase user — pass it directly
-      // so we don't rely on stale React state
-      const loggedInUser = await signInWithGoogle();
-      await doJoin(loggedInUser ?? undefined);
-    } catch {
-      setErrorMsg("Sign-in failed. Please try again.");
-      setStatus("error");
+    if (user && status === "idle") {
+      // Check if we arrived here after a Google redirect from another page
+      const pendingToken = sessionStorage.getItem("pendingInviteToken");
+      if (pendingToken) {
+        sessionStorage.removeItem("pendingInviteToken");
+        sessionStorage.removeItem("pendingInviteRole");
+      }
+      doJoin(user);
     }
+  }, [user, loading]);
+
+  const handleGoogle = () => {
+    // Store invite details so they survive the redirect
+    if (token) {
+      sessionStorage.setItem("pendingInviteToken", token);
+      sessionStorage.setItem("pendingInviteRole", role);
+    }
+    // signInWithGoogle triggers a page redirect — page reloads after auth
+    signInWithGoogle(token, role);
   };
+
+  // While Firebase is still resolving auth state, show a spinner
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -127,6 +137,7 @@ export default function InvitePage() {
             <span className="text-xl font-bold text-primary-foreground">R</span>
           </div>
 
+          {/* Not signed in yet — show sign-in options */}
           {status === "idle" && !user && (
             <>
               <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
