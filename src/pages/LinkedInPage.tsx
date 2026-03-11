@@ -288,7 +288,7 @@ function ColorPicker({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex flex-wrap gap-2 items-center p-3 rounded-2xl border border-border/50">
+      <div className="flex flex-wrap gap-2 items-center p-3 rounded-2xl border border-border bg-muted/20">
         {/* Clear */}
         <button
           onClick={() => onChange("")}
@@ -365,7 +365,7 @@ function ColorPicker({
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
-          className="rounded-2xl border border-border/50 bg-muted/30 p-4 space-y-3 mt-1"
+          className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3 mt-1"
         >
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             Gradient Builder
@@ -535,23 +535,23 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
     .slice(0, 6);
   const maxPct = locations[0].pct;
   const positions = [
-    { left: "50%", top: "48%" },
-    { left: "18%", top: "30%" },
-    { left: "80%", top: "24%" },
-    { left: "22%", top: "72%" },
-    { left: "78%", top: "70%" },
-    { left: "52%", top: "18%" },
+    { left: "50%", top: "50%" },
+    { left: "24%", top: "30%" },
+    { left: "76%", top: "26%" },
+    { left: "26%", top: "72%" },
+    { left: "74%", top: "70%" },
+    { left: "51%", top: "16%" },
   ];
   return (
     <div
-      className="relative h-80 w-full rounded-xl overflow-hidden"
+      className="relative h-80 w-full rounded-xl"
       style={{
         background:
           "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.3) 0%, transparent 80%)",
       }}
     >
       <svg
-        className="absolute inset-0 w-full h-full opacity-[0.07]"
+        className="absolute inset-0 w-full h-full rounded-xl opacity-[0.07]"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
@@ -572,7 +572,8 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
         <rect width="100%" height="100%" fill="url(#geo-grid)" />
       </svg>
       {locations.map((loc, i) => {
-        const size = 56 + (loc.pct / maxPct) * 90;
+        // Cap bubble size so they never overflow — max 110px
+        const size = Math.min(50 + (loc.pct / maxPct) * 70, 110);
         const pos = positions[i] ?? { left: "50%", top: "50%" };
         const color = GEO_COLORS[i % GEO_COLORS.length];
         const isHov = hoveredIdx === i;
@@ -742,8 +743,8 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
 function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
   const [tab, setTab] = useState<"hour" | "day">("hour");
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const TEAL = "#38bdf8";
-  const VIOLET = "#818cf8";
+  const TEAL = "#818cf8"; // violet — no green
+  const VIOLET = "#c084fc"; // lilac
 
   // ── Best Hour (from publishTime field e.g. "2:41 PM") ────────────────────
   const hourEngagement: Record<number, { total: number; count: number }> = {};
@@ -822,7 +823,7 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
 
   return (
     <div className="space-y-3">
-      {/* Tab switcher — Material Symbols icons, no emoji */}
+      {/* Tab switcher — inline SVG icons, no font dependency */}
       <div className="flex gap-1 p-1 rounded-lg bg-muted/30 w-fit">
         {(["hour", "day"] as const).map((t) => (
           <button
@@ -830,15 +831,37 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
             onClick={() => setTab(t)}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
-            <span
-              className="material-symbols-outlined text-[11px] leading-none"
-              style={{
-                fontVariationSettings:
-                  "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-              }}
-            >
-              {t === "hour" ? "alarm" : "calendar_today"}
-            </span>
+            {t === "hour" ? (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            ) : (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            )}
             {t === "hour" ? "Best Hour" : "Best Day"}
           </button>
         ))}
@@ -858,16 +881,19 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
                 className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: TEAL + "20" }}
               >
-                <span
-                  className="material-symbols-outlined text-[18px]"
-                  style={{
-                    color: TEAL,
-                    fontVariationSettings:
-                      "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-                  }}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={TEAL}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  alarm
-                </span>
+                  <circle cx="12" cy="12" r="10" />
+                  <polyline points="12 6 12 12 16 14" />
+                </svg>
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] text-muted-foreground">
@@ -958,16 +984,21 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
                 className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                 style={{ background: VIOLET + "20" }}
               >
-                <span
-                  className="material-symbols-outlined text-[18px]"
-                  style={{
-                    color: VIOLET,
-                    fontVariationSettings:
-                      "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
-                  }}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={VIOLET}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  calendar_today
-                </span>
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] text-muted-foreground">
@@ -3600,22 +3631,7 @@ function PostsTable({
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
-// Material Symbols font loaded once per mount
-function useMaterialSymbols() {
-  useEffect(() => {
-    const id = "material-symbols-outlined-css";
-    if (document.getElementById(id)) return;
-    const link = document.createElement("link");
-    link.id = id;
-    link.rel = "stylesheet";
-    link.href =
-      "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=alarm,calendar_today";
-    document.head.appendChild(link);
-  }, []);
-}
-
 export default function LinkedInPage() {
-  useMaterialSymbols();
   const { workspace } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<LinkedInAccount[]>([]);
