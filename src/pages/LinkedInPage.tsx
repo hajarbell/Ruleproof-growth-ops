@@ -1500,124 +1500,454 @@ function AddPostModal({
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
+        const sheetNames = wb.SheetNames.map((s) => s.toUpperCase());
 
-        // ── Sheet 1: PERFORMANCE ──────────────────────────────────────────────
-        const perfSheet = wb.Sheets[wb.SheetNames[0]];
-        const perfRows: any[][] = XLSX.utils.sheet_to_json(perfSheet, {
-          header: 1,
-        });
-
-        const kv: Record<string, string> = {};
-        for (const row of perfRows) {
-          const k = String(row?.[0] || "").trim();
-          const v = String(row?.[1] || "").trim();
-          if (k) kv[k] = v;
-        }
-
-        const parseNum = (s: string) =>
-          parseInt(String(s || "0").replace(/,/g, "")) || 0;
-
-        const postUrl = kv["Post URL"] || "";
-        const postDate = kv["Post Date"] || "";
-        const publishTime = kv["Post Publish Time"] || kv["Publish time"] || "";
-        const impressions = parseNum(kv["Impressions"]);
-        const membersReached = parseNum(kv["Members reached"]);
-        const profileViewers = parseNum(kv["Profile viewers from this post"]);
-        const followersGained = parseNum(kv["Followers gained from this post"]);
-        const reactions = parseNum(kv["Reactions"]);
-        const comments = parseNum(kv["Comments"]);
-        const reposts = parseNum(kv["Reposts"]);
-        const saves = parseNum(kv["Saves"]);
-        const sends = parseNum(kv["Sends on LinkedIn"]);
-
-        const highlightLocation = kv["Top location"] || "";
-        const highlightJobTitle = kv["Top job title"] || "";
-        const highlightIndustry = kv["Top industry"] || "";
-
-        // ── Sheet 2: TOP DEMOGRAPHICS ─────────────────────────────────────────
-        const topLocations: Array<{ name: string; pct: number }> = [];
-        const topJobFunctions: Array<{ name: string; pct: number }> = [];
-        const topIndustries: Array<{ name: string; pct: number }> = [];
-        const topSeniority: Array<{ name: string; pct: number }> = [];
-        const topCompanySizes: Array<{ name: string; pct: number }> = [];
-
-        if (wb.SheetNames.length > 1) {
-          const demoSheet = wb.Sheets[wb.SheetNames[1]];
-          const demoRows: any[][] = XLSX.utils.sheet_to_json(demoSheet, {
-            header: 1,
-          });
-          for (const row of demoRows) {
+        // ─── Helper: parse demographics sheet into arrays ───────────────────
+        const parseDemographics = (sheet: any) => {
+          const rows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          const topLocations: Array<{ name: string; pct: number }> = [];
+          const topJobFunctions: Array<{ name: string; pct: number }> = [];
+          const topIndustries: Array<{ name: string; pct: number }> = [];
+          const topSeniority: Array<{ name: string; pct: number }> = [];
+          const topCompanySizes: Array<{ name: string; pct: number }> = [];
+          for (const row of rows) {
             const cat = String(row?.[0] || "").trim();
             const val = String(row?.[1] || "").trim();
             const pctRaw = row?.[2];
-            if (!cat || !val || cat === "Category") continue;
+            if (
+              !cat ||
+              !val ||
+              cat === "Category" ||
+              cat === "Top Demographics"
+            )
+              continue;
             let pct = 0;
             if (typeof pctRaw === "number") pct = Math.round(pctRaw * 100);
             else if (typeof pctRaw === "string" && pctRaw.includes("%"))
               pct = 1;
-            if (cat === "Location") topLocations.push({ name: val, pct });
-            else if (cat === "Job title")
+            // Handle both naming conventions: "Location"/"Locations", "Job title"/"Job titles"
+            const catL = cat.toLowerCase();
+            if (catL === "location" || catL === "locations")
+              topLocations.push({ name: val, pct });
+            else if (catL === "job title" || catL === "job titles")
               topJobFunctions.push({ name: val, pct });
-            else if (cat === "Industry") topIndustries.push({ name: val, pct });
-            else if (cat === "Seniority") topSeniority.push({ name: val, pct });
-            else if (cat === "Company size")
+            else if (catL === "industry" || catL === "industries")
+              topIndustries.push({ name: val, pct });
+            else if (catL === "seniority")
+              topSeniority.push({ name: val, pct });
+            else if (catL === "company size" || catL === "company sizes")
               topCompanySizes.push({ name: val, pct });
           }
+          return {
+            topLocations,
+            topJobFunctions,
+            topIndustries,
+            topSeniority,
+            topCompanySizes,
+          };
+        };
+
+        // ─── Helper: parse a number safely ─────────────────────────────────
+        const parseNum = (v: any) =>
+          parseInt(String(v ?? "0").replace(/,/g, "")) || 0;
+
+        // ─── Helper: format a date to YYYY-MM-DD ───────────────────────────
+        const fmtDate = (raw: any): string => {
+          if (!raw) return new Date().toISOString().split("T")[0];
+          try {
+            // Excel serial date number
+            if (typeof raw === "number") {
+              const d = new Date(Math.round((raw - 25569) * 86400 * 1000));
+              if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
+            }
+            const d = new Date(String(raw));
+            return isNaN(d.getTime())
+              ? new Date().toISOString().split("T")[0]
+              : d.toISOString().split("T")[0];
+          } catch {
+            return new Date().toISOString().split("T")[0];
+          }
+        };
+
+        // ═══════════════════════════════════════════════════════════════════
+        // FORMAT A: PER-POST EXPORT — sheets: PERFORMANCE + TOP DEMOGRAPHICS
+        // ═══════════════════════════════════════════════════════════════════
+        const isPerPost =
+          sheetNames.includes("PERFORMANCE") ||
+          sheetNames[0] === "SHEET1" ||
+          sheetNames[0] === "SHEET 1" ||
+          // detect by checking if first sheet has "Post URL" key
+          (() => {
+            const rows: any[][] = XLSX.utils.sheet_to_json(
+              wb.Sheets[wb.SheetNames[0]],
+              { header: 1 },
+            );
+            return rows.some((r) => String(r?.[0] || "").trim() === "Post URL");
+          })();
+
+        if (isPerPost) {
+          // ── Sheet 1: key-value pairs ──────────────────────────────────────
+          const perfRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[0]],
+            { header: 1 },
+          );
+          const kv: Record<string, string> = {};
+          for (const row of perfRows) {
+            const k = String(row?.[0] || "").trim();
+            const v = String(row?.[1] || "").trim();
+            if (k) kv[k] = v;
+          }
+          const postUrl = kv["Post URL"] || "";
+          const postDate = kv["Post Date"] || "";
+          const publishTime =
+            kv["Post Publish Time"] || kv["Publish time"] || "";
+          const impressions = parseNum(kv["Impressions"]);
+          const membersReached = parseNum(kv["Members reached"]);
+          const profileViewers = parseNum(kv["Profile viewers from this post"]);
+          const followersGained = parseNum(
+            kv["Followers gained from this post"],
+          );
+          const reactions = parseNum(kv["Reactions"]);
+          const comments = parseNum(kv["Comments"]);
+          const reposts = parseNum(kv["Reposts"]);
+          const saves = parseNum(kv["Saves"]);
+          const sends = parseNum(kv["Sends on LinkedIn"]);
+          const highlightLocation = kv["Top location"] || "";
+          const highlightJobTitle = kv["Top job title"] || "";
+          const highlightIndustry = kv["Top industry"] || "";
+
+          // ── Sheet 2: demographics ─────────────────────────────────────────
+          let demo = {
+            topLocations: [] as any[],
+            topJobFunctions: [] as any[],
+            topIndustries: [] as any[],
+            topSeniority: [] as any[],
+            topCompanySizes: [] as any[],
+          };
+          if (wb.SheetNames.length > 1) {
+            demo = parseDemographics(wb.Sheets[wb.SheetNames[1]]);
+          }
+          if (!demo.topLocations.length && highlightLocation)
+            demo.topLocations.push({ name: highlightLocation, pct: 50 });
+          if (!demo.topJobFunctions.length && highlightJobTitle)
+            demo.topJobFunctions.push({ name: highlightJobTitle, pct: 50 });
+          if (!demo.topIndustries.length && highlightIndustry)
+            demo.topIndustries.push({ name: highlightIndustry, pct: 50 });
+
+          const formattedDate = fmtDate(postDate);
+          if (!postUrl && impressions === 0) {
+            setImportError(
+              "No post data found. Make sure this is a LinkedIn analytics export.",
+            );
+            return;
+          }
+          const pid = `post_${Date.now()}_0`;
+          const newPost: LinkedInPost = {
+            id: pid,
+            title: `LinkedIn Post — ${formattedDate}`,
+            content: "",
+            postUrl,
+            likes: reactions,
+            comments,
+            reposts,
+            views: impressions,
+            saves,
+            membersReached,
+            followersGained,
+            profileViewers,
+            sends,
+            date: formattedDate,
+            publishTime: publishTime || "",
+            reactionIcon: kv["Top reaction type"]
+              ? mapLinkedInReaction(kv["Top reaction type"])
+              : "none",
+            tags: [],
+            ...(demo.topLocations.length
+              ? { topLocations: demo.topLocations }
+              : {}),
+            ...(demo.topJobFunctions.length
+              ? { topJobFunctions: demo.topJobFunctions }
+              : {}),
+            ...(demo.topIndustries.length
+              ? { topIndustries: demo.topIndustries }
+              : {}),
+            ...(demo.topSeniority.length
+              ? { topSeniority: demo.topSeniority }
+              : {}),
+            ...(demo.topCompanySizes.length
+              ? { topCompanySizes: demo.topCompanySizes }
+              : {}),
+          };
+          setImportPreview([newPost]);
+          setImportTitles({ [pid]: "" });
+          return;
         }
 
-        // Fallback to sheet1 single highlight values
-        if (topLocations.length === 0 && highlightLocation)
-          topLocations.push({ name: highlightLocation, pct: 50 });
-        if (topJobFunctions.length === 0 && highlightJobTitle)
-          topJobFunctions.push({ name: highlightJobTitle, pct: 50 });
-        if (topIndustries.length === 0 && highlightIndustry)
-          topIndustries.push({ name: highlightIndustry, pct: 50 });
-
-        let formattedDate = new Date().toISOString().split("T")[0];
-        try {
-          const d = new Date(postDate);
-          if (!isNaN(d.getTime()))
-            formattedDate = d.toISOString().split("T")[0];
-        } catch {}
-
-        if (!postUrl && impressions === 0) {
+        // ═══════════════════════════════════════════════════════════════════
+        // FORMAT B: WEEKLY/DATE-RANGE EXPORT
+        // Sheets: DISCOVERY, ENGAGEMENT, TOP POSTS, FOLLOWERS, DEMOGRAPHICS
+        // ═══════════════════════════════════════════════════════════════════
+        const hasWeeklySheets =
+          sheetNames.includes("DISCOVERY") || sheetNames.includes("TOP POSTS");
+        if (!hasWeeklySheets) {
           setImportError(
-            "No post data found. Make sure this is a LinkedIn analytics export.",
+            "Unrecognized export format. Expected a LinkedIn post analytics or weekly analytics export.",
           );
           return;
         }
 
-        const pid = `post_${Date.now()}_0`;
-        // Build post with NO undefined values — Firebase rejects undefined
-        const newPost: LinkedInPost = {
-          id: pid,
-          title: `LinkedIn Post — ${formattedDate}`,
-          content: "",
-          postUrl,
-          likes: reactions,
-          comments,
-          reposts,
-          views: impressions,
-          saves,
-          membersReached,
-          followersGained,
-          profileViewers,
-          sends,
-          date: formattedDate,
-          publishTime: publishTime || "",
-          reactionIcon: kv["Top reaction type"]
-            ? mapLinkedInReaction(kv["Top reaction type"])
-            : "none",
-          tags: [],
-          ...(topLocations.length ? { topLocations } : {}),
-          ...(topJobFunctions.length ? { topJobFunctions } : {}),
-          ...(topIndustries.length ? { topIndustries } : {}),
-          ...(topSeniority.length ? { topSeniority } : {}),
-          ...(topCompanySizes.length ? { topCompanySizes } : {}),
-        };
+        // ── DISCOVERY: overall impressions + members reached ──────────────
+        let weekImpressions = 0,
+          weekMembersReached = 0,
+          dateRange = "";
+        const discoveryIdx = sheetNames.indexOf("DISCOVERY");
+        if (discoveryIdx >= 0) {
+          const discRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[discoveryIdx]],
+            { header: 1 },
+          );
+          for (const row of discRows) {
+            const k = String(row?.[0] || "").trim();
+            const v = row?.[1];
+            if (k === "Overall Performance") dateRange = String(v || "");
+            else if (k === "Impressions") weekImpressions = parseNum(v);
+            else if (k === "Members reached") weekMembersReached = parseNum(v);
+          }
+        }
 
-        setImportPreview([newPost]);
-        setImportTitles({ [pid]: "" });
+        // ── ENGAGEMENT: day-by-day breakdown (Date | Impressions | Engagements) ─
+        const dailyData: Array<{
+          date: string;
+          impressions: number;
+          engagements: number;
+        }> = [];
+        const engIdx = sheetNames.indexOf("ENGAGEMENT");
+        if (engIdx >= 0) {
+          const engRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[engIdx]],
+            { header: 1 },
+          );
+          for (const row of engRows) {
+            const dateCell = row?.[0];
+            const imp = row?.[1];
+            const eng = row?.[2];
+            if (
+              !dateCell ||
+              String(dateCell).trim() === "Date" ||
+              String(dateCell).trim() === "Overall Performance"
+            )
+              continue;
+            const d = fmtDate(dateCell);
+            if (d)
+              dailyData.push({
+                date: d,
+                impressions: parseNum(imp),
+                engagements: parseNum(eng),
+              });
+          }
+        }
+
+        // ── FOLLOWERS: total + day-by-day ─────────────────────────────────
+        let totalFollowers = 0;
+        const dailyFollowers: Record<string, number> = {};
+        const followIdx = sheetNames.indexOf("FOLLOWERS");
+        if (followIdx >= 0) {
+          const folRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[followIdx]],
+            { header: 1 },
+          );
+          for (const row of folRows) {
+            const k = String(row?.[0] || "").trim();
+            if (k.startsWith("Total followers"))
+              totalFollowers = parseNum(row?.[1]);
+            else if (k === "Date" || !k) continue;
+            else {
+              dailyFollowers[fmtDate(k)] = parseNum(row?.[1]);
+            }
+          }
+        }
+
+        // ── TOP POSTS: merge engagement + impressions columns ─────────────
+        // Left side cols 0-2: URL | Date | Engagements (top by engagement)
+        // Right side cols 4-6: URL | Date | Impressions (top by impressions)
+        const postMap: Record<
+          string,
+          {
+            url: string;
+            date: string;
+            engagements: number;
+            impressions: number;
+          }
+        > = {};
+        const topPostsIdx = sheetNames.indexOf("TOP POSTS");
+        if (topPostsIdx >= 0) {
+          const tpRows: any[][] = XLSX.utils.sheet_to_json(
+            wb.Sheets[wb.SheetNames[topPostsIdx]],
+            { header: 1 },
+          );
+          for (const row of tpRows) {
+            // Left side: engagement ranked
+            const urlL = String(row?.[0] || "").trim();
+            const dateL = row?.[1];
+            const engL = row?.[2];
+            if (urlL && urlL.startsWith("http") && dateL) {
+              const key = urlL;
+              if (!postMap[key])
+                postMap[key] = {
+                  url: urlL,
+                  date: fmtDate(dateL),
+                  engagements: 0,
+                  impressions: 0,
+                };
+              postMap[key].engagements = Math.max(
+                postMap[key].engagements,
+                parseNum(engL),
+              );
+            }
+            // Right side: impressions ranked
+            const urlR = String(row?.[4] || "").trim();
+            const dateR = row?.[5];
+            const impR = row?.[6];
+            if (urlR && urlR.startsWith("http") && dateR) {
+              const key = urlR;
+              if (!postMap[key])
+                postMap[key] = {
+                  url: urlR,
+                  date: fmtDate(dateR),
+                  engagements: 0,
+                  impressions: 0,
+                };
+              postMap[key].impressions = Math.max(
+                postMap[key].impressions,
+                parseNum(impR),
+              );
+            }
+          }
+        }
+
+        // ── DEMOGRAPHICS ──────────────────────────────────────────────────
+        const demoIdx = sheetNames.indexOf("DEMOGRAPHICS");
+        const weekDemo =
+          demoIdx >= 0
+            ? parseDemographics(wb.Sheets[wb.SheetNames[demoIdx]])
+            : {
+                topLocations: [],
+                topJobFunctions: [],
+                topIndustries: [],
+                topSeniority: [],
+                topCompanySizes: [],
+              };
+
+        // ── Build posts list ──────────────────────────────────────────────
+        const posts: LinkedInPost[] = [];
+        const mergedPosts = Object.values(postMap).sort(
+          (a, b) =>
+            b.impressions - a.impressions || b.engagements - a.engagements,
+        );
+
+        if (mergedPosts.length === 0) {
+          // No individual posts — create one summary entry for the whole week
+          const weekStart =
+            dailyData[0]?.date || new Date().toISOString().split("T")[0];
+          const totalEng = dailyData.reduce((s, d) => s + d.engagements, 0);
+          const totalFollGained = Object.values(dailyFollowers).reduce(
+            (s, v) => s + v,
+            0,
+          );
+          const pid = `post_${Date.now()}_week`;
+          posts.push({
+            id: pid,
+            title: `Weekly Summary${dateRange ? " · " + dateRange : ""}`,
+            content: `Week: ${dateRange}
+Impressions: ${weekImpressions}
+Members reached: ${weekMembersReached}
+Engagements: ${totalEng}`,
+            postUrl: "",
+            likes: totalEng,
+            comments: 0,
+            reposts: 0,
+            views: weekImpressions,
+            saves: 0,
+            membersReached: weekMembersReached,
+            followersGained: totalFollGained,
+            profileViewers: 0,
+            sends: 0,
+            date: weekStart,
+            publishTime: "",
+            reactionIcon: "none",
+            tags: [],
+            ...(weekDemo.topLocations.length
+              ? { topLocations: weekDemo.topLocations }
+              : {}),
+            ...(weekDemo.topJobFunctions.length
+              ? { topJobFunctions: weekDemo.topJobFunctions }
+              : {}),
+            ...(weekDemo.topIndustries.length
+              ? { topIndustries: weekDemo.topIndustries }
+              : {}),
+            ...(weekDemo.topSeniority.length
+              ? { topSeniority: weekDemo.topSeniority }
+              : {}),
+            ...(weekDemo.topCompanySizes.length
+              ? { topCompanySizes: weekDemo.topCompanySizes }
+              : {}),
+          });
+        } else {
+          // One post entry per unique URL — enriched with followers & demographics
+          mergedPosts.forEach((p, i) => {
+            const pid = `post_${Date.now()}_${i}`;
+            const follOnDay = dailyFollowers[p.date] || 0;
+            // Find daily totals for the post's date
+            const dayStats = dailyData.find((d) => d.date === p.date);
+            posts.push({
+              id: pid,
+              title: `LinkedIn Post — ${p.date}`,
+              content: "",
+              postUrl: p.url,
+              likes: p.engagements,
+              comments: 0,
+              reposts: 0,
+              views: p.impressions,
+              saves: 0,
+              membersReached: 0,
+              followersGained: follOnDay,
+              profileViewers: 0,
+              sends: 0,
+              date: p.date,
+              publishTime: "",
+              reactionIcon: "none",
+              tags: [],
+              // Attach demographics to every post from this week's export
+              ...(weekDemo.topLocations.length
+                ? { topLocations: weekDemo.topLocations }
+                : {}),
+              ...(weekDemo.topJobFunctions.length
+                ? { topJobFunctions: weekDemo.topJobFunctions }
+                : {}),
+              ...(weekDemo.topIndustries.length
+                ? { topIndustries: weekDemo.topIndustries }
+                : {}),
+              ...(weekDemo.topSeniority.length
+                ? { topSeniority: weekDemo.topSeniority }
+                : {}),
+              ...(weekDemo.topCompanySizes.length
+                ? { topCompanySizes: weekDemo.topCompanySizes }
+                : {}),
+            });
+          });
+        }
+
+        if (posts.length === 0) {
+          setImportError("No post data found in this export.");
+          return;
+        }
+
+        const titles: Record<string, string> = {};
+        posts.forEach((p) => {
+          titles[p.id] = "";
+        });
+        setImportPreview(posts);
+        setImportTitles(titles);
       } catch (err) {
         console.error("Excel parse error:", err);
         setImportError(
@@ -1845,12 +2175,17 @@ function AddPostModal({
                 How to export from LinkedIn:
               </p>
               <p>
-                1. Go to your post → click <strong>Analytics</strong>
+                🗒 <strong>Per-post:</strong> Go to your post → Analytics →
+                Export
               </p>
               <p>
-                2. Click <strong>Export</strong> → download the .xlsx file
+                📅 <strong>Weekly:</strong> Creator Analytics → Export (date
+                range) → .xlsx
               </p>
-              <p>3. Upload it here — we'll auto-read all the metrics</p>
+              <p>
+                Both formats supported — we auto-detect and import all posts +
+                demographics
+              </p>
             </div>
             <input
               ref={fileRef}
