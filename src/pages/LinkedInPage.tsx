@@ -110,18 +110,19 @@ const AVATAR_COLORS = [
   "#14b8a6",
 ];
 
-const GRADIENT_COLORS = [
+// 2 gradient presets shown as single circle swatches
+const GRADIENT_PRESETS = [
   {
-    label: "Electric",
-    value: "grad-electric",
-    bg: "linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%)",
-    sparkColor: "#7c3aed",
+    id: "grad-ocean",
+    label: "Ocean",
+    css: "linear-gradient(135deg, #1e3a8a 0%, #1d6fff 100%)",
+    sparkColor: "#1d6fff",
   },
   {
-    label: "Glam",
-    value: "grad-glam",
-    bg: "linear-gradient(135deg, #3b82f6 0%, #ec4899 50%, #8b5cf6 100%)",
-    sparkColor: "#ec4899",
+    id: "grad-aurora",
+    label: "Aurora",
+    css: "linear-gradient(135deg, #ec4899 0%, #a78bfa 50%, #38bdf8 100%)",
+    sparkColor: "#a78bfa",
   },
 ];
 
@@ -177,13 +178,8 @@ const REACTION_ICONS = [
   { id: "brain", label: "Brain", svg: "🧠" },
 ];
 
-const GEO_BUBBLE_COLORS = [
-  "#6366f1",
-  "#0ea5e9",
-  "#10b981",
-  "#f59e0b",
-  "#ec4899",
-];
+const GEO_COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899"];
+const JOB_COLORS = ["#8b5cf6", "#06b6d4", "#f97316", "#84cc16", "#f43f5e"];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -205,14 +201,14 @@ function fmtNum(n: number): string {
 
 function getAvatarBg(avatarColor: string): string {
   if (!avatarColor) return "linear-gradient(135deg, #6366f1, #6366f188)";
-  const grad = GRADIENT_COLORS.find((g) => g.value === avatarColor);
-  if (grad) return grad.bg;
+  const grad = GRADIENT_PRESETS.find((g) => g.id === avatarColor);
+  if (grad) return grad.css;
   if (avatarColor.startsWith("linear-gradient")) return avatarColor;
   return `linear-gradient(135deg, ${avatarColor}, ${avatarColor}88)`;
 }
 
 function getSparkColor(avatarColor: string): string {
-  const grad = GRADIENT_COLORS.find((g) => g.value === avatarColor);
+  const grad = GRADIENT_PRESETS.find((g) => g.id === avatarColor);
   if (grad) return grad.sparkColor;
   if (avatarColor?.startsWith("linear-gradient")) {
     const match = avatarColor.match(/#[0-9a-fA-F]{6}/);
@@ -246,10 +242,16 @@ function ColorPicker({
   value: string;
   onChange: (c: string) => void;
 }) {
+  const customInputRef = useRef<HTMLInputElement>(null);
+  // detect if current value is a custom hex (not in presets/AVATAR_COLORS)
+  const isCustom =
+    value.startsWith("#") &&
+    !AVATAR_COLORS.includes(value) &&
+    !AVATAR_COLORS.some((c) => value.startsWith(c));
   return (
     <div className="space-y-3">
-      {/* Solid colors */}
-      <div className="flex flex-wrap gap-3">
+      <div className="flex flex-wrap gap-3 items-end">
+        {/* Clear */}
         <button
           onClick={() => onChange("")}
           className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${value === "" ? "border-foreground scale-110" : "border-border"}`}
@@ -257,6 +259,7 @@ function ColorPicker({
         >
           <X className="w-3 h-3 text-muted-foreground" />
         </button>
+        {/* Solid colors — each with 3 shades */}
         {AVATAR_COLORS.map((c) => {
           const p1 = c + "88";
           const p2 = c + "44";
@@ -280,27 +283,50 @@ function ColorPicker({
             </div>
           );
         })}
-      </div>
-      {/* Gradient presets */}
-      <div>
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Gradients
-        </p>
-        <div className="flex gap-3">
-          {GRADIENT_COLORS.map((g) => (
+        {/* Gradient preset circles */}
+        {GRADIENT_PRESETS.map((g) => (
+          <div key={g.id} className="flex flex-col items-center gap-1.5">
             <button
-              key={g.value}
-              onClick={() => onChange(g.value)}
+              onClick={() => onChange(g.id)}
+              style={{ background: g.css }}
               title={g.label}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-medium ${value === g.value ? "border-primary/60 ring-2 ring-primary/30 scale-105" : "border-border hover:border-primary/40"}`}
-            >
-              <span
-                style={{ background: g.bg }}
-                className="w-5 h-5 rounded-full flex-shrink-0"
-              />
-              {g.label}
-            </button>
-          ))}
+              className={`w-8 h-8 rounded-full transition-all ${value === g.id ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
+            />
+            <span className="text-[9px] text-muted-foreground">{g.label}</span>
+          </div>
+        ))}
+        {/* Custom color picker */}
+        <div className="flex flex-col items-center gap-1.5">
+          <button
+            onClick={() => customInputRef.current?.click()}
+            title="Custom color"
+            className={`w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center transition-all overflow-hidden relative ${isCustom ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110 border-transparent" : "border-border hover:border-primary/60"}`}
+            style={isCustom ? { background: value } : {}}
+          >
+            {!isCustom && (
+              <svg
+                viewBox="0 0 24 24"
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  d="M12 3v1m0 16v1M4.22 4.22l.71.71m13.36 13.36.71.71M3 12h1m16 0h1M4.22 19.78l.71-.71M18.36 5.64l.71-.71"
+                  strokeLinecap="round"
+                />
+                <circle cx="12" cy="12" r="4" />
+              </svg>
+            )}
+            <input
+              ref={customInputRef}
+              type="color"
+              defaultValue={isCustom ? value : "#6366f1"}
+              onChange={(e) => onChange(e.target.value)}
+              className="sr-only"
+            />
+          </button>
+          <span className="text-[9px] text-muted-foreground">Custom</span>
         </div>
       </div>
     </div>
@@ -333,7 +359,7 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
     <svg width={W} height={H} className="overflow-visible">
       <defs>
         <linearGradient
-          id={`grad-${sparkColor.replace("#", "")}`}
+          id={`sg-${sparkColor.replace("#", "")}`}
           x1="0"
           y1="0"
           x2="0"
@@ -345,7 +371,7 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
       </defs>
       <polygon
         points={areaPoints}
-        fill={`url(#grad-${sparkColor.replace("#", "")})`}
+        fill={`url(#sg-${sparkColor.replace("#", "")})`}
       />
       <polyline
         points={points}
@@ -367,51 +393,78 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
 
 // ─── Geography Bubbles ────────────────────────────────────────────────────────
 function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
-  const allLocations: Record<string, number> = {};
-  let total = 0;
-  posts.forEach((p) => {
-    p.topLocations?.forEach((loc) => {
-      allLocations[loc.name] = (allLocations[loc.name] || 0) + loc.pct;
-      total += loc.pct;
-    });
-  });
-
-  const locations = Object.entries(allLocations)
-    .map(([name, pct]) => ({
-      name,
-      pct: Math.round(
-        pct / Math.max(posts.filter((p) => p.topLocations?.length).length, 1),
-      ),
-    }))
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 5);
-
-  if (!locations.length) {
+  const postsWithGeo = posts.filter((p) => p.topLocations?.length);
+  if (!postsWithGeo.length) {
     return (
-      <div className="flex items-center justify-center h-28 text-xs text-muted-foreground italic text-center px-4">
-        <div>
-          <MapPin className="w-5 h-5 mx-auto mb-2 opacity-30" />
-          No geography data — import from LinkedIn analytics to see this
+      <div className="flex flex-col items-center justify-center h-28 gap-2 text-center">
+        <div className="w-8 h-8 rounded-full bg-muted/40 flex items-center justify-center">
+          <MapPin className="w-4 h-4 opacity-30 text-muted-foreground" />
         </div>
+        <p className="text-xs text-muted-foreground italic">
+          No geography data yet
+          <br />
+          <span className="text-[10px] opacity-60">
+            Import LinkedIn analytics to unlock
+          </span>
+        </p>
       </div>
     );
   }
-
+  const agg: Record<string, number> = {};
+  postsWithGeo.forEach((p) =>
+    p.topLocations!.forEach((l) => {
+      agg[l.name] = (agg[l.name] || 0) + l.pct;
+    }),
+  );
+  const locations = Object.entries(agg)
+    .map(([name, total]) => ({
+      name,
+      pct: Math.round(total / postsWithGeo.length),
+    }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
   const maxPct = locations[0].pct;
-  const bubblePositions = [
-    { left: "48%", top: "48%" },
-    { left: "22%", top: "38%" },
-    { left: "72%", top: "32%" },
-    { left: "30%", top: "68%" },
-    { left: "68%", top: "65%" },
+  const positions = [
+    { left: "50%", top: "50%" },
+    { left: "20%", top: "32%" },
+    { left: "76%", top: "26%" },
+    { left: "25%", top: "70%" },
+    { left: "74%", top: "68%" },
   ];
-
   return (
-    <div className="relative h-32 w-full overflow-hidden">
+    <div
+      className="relative h-40 w-full rounded-xl overflow-hidden"
+      style={{
+        background:
+          "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.4) 0%, transparent 70%)",
+      }}
+    >
+      {/* subtle grid lines */}
+      <svg
+        className="absolute inset-0 w-full h-full opacity-10"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern
+            id="geo-grid"
+            width="20"
+            height="20"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 20 0 L 0 0 0 20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="0.5"
+            />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#geo-grid)" />
+      </svg>
       {locations.map((loc, i) => {
-        const size = 36 + (loc.pct / maxPct) * 64;
-        const pos = bubblePositions[i] ?? { left: "50%", top: "50%" };
-        const color = GEO_BUBBLE_COLORS[i % GEO_BUBBLE_COLORS.length];
+        const size = 42 + (loc.pct / maxPct) * 70;
+        const pos = positions[i] ?? { left: "50%", top: "50%" };
+        const color = GEO_COLORS[i % GEO_COLORS.length];
         return (
           <motion.div
             key={loc.name}
@@ -421,29 +474,33 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
               delay: i * 0.08,
               type: "spring",
               stiffness: 200,
-              damping: 15,
+              damping: 14,
             }}
             style={{
               position: "absolute",
               left: pos.left,
               top: pos.top,
-              transform: "translate(-50%, -50%)",
+              transform: "translate(-50%,-50%)",
               width: size,
               height: size,
-              background: color + "28",
-              border: `1.5px solid ${color}55`,
+              background: `radial-gradient(circle at 38% 38%, ${color}50, ${color}18)`,
+              border: `1.5px solid ${color}70`,
+              boxShadow: `0 0 ${size * 0.4}px ${color}28`,
               borderRadius: "50%",
             }}
-            className="flex flex-col items-center justify-center cursor-default"
+            className="flex flex-col items-center justify-center"
             title={`${loc.name}: ~${loc.pct}%`}
           >
             <span
-              className="text-[10px] font-bold leading-none"
+              className="text-[12px] font-bold leading-none drop-shadow-sm"
               style={{ color }}
             >
               {loc.pct}%
             </span>
-            <span className="text-[8px] text-muted-foreground text-center px-1 leading-tight mt-0.5 truncate max-w-full">
+            <span
+              className="text-[8px] text-center px-1 leading-tight mt-0.5 truncate max-w-full font-medium"
+              style={{ color: color + "dd" }}
+            >
               {loc.name}
             </span>
           </motion.div>
@@ -455,58 +512,80 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
 
 // ─── Job Function Bars ────────────────────────────────────────────────────────
 function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
-  const allFunctions: Record<string, number> = {};
-  const postCount = posts.filter((p) => p.topJobFunctions?.length).length;
-  posts.forEach((p) => {
-    p.topJobFunctions?.forEach((fn) => {
-      allFunctions[fn.name] = (allFunctions[fn.name] || 0) + fn.pct;
-    });
-  });
-
-  const functions = Object.entries(allFunctions)
-    .map(([name, pct]) => ({
-      name,
-      pct: Math.round(pct / Math.max(postCount, 1)),
-    }))
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 5);
-
-  if (!functions.length) {
+  const postsWithJobs = posts.filter((p) => p.topJobFunctions?.length);
+  if (!postsWithJobs.length) {
     return (
-      <div className="flex items-center justify-center h-20 text-xs text-muted-foreground italic text-center">
-        <div>
-          <Briefcase className="w-4 h-4 mx-auto mb-1.5 opacity-30" />
-          No job function data yet
+      <div className="flex flex-col items-center justify-center h-20 gap-2 text-center">
+        <div className="w-7 h-7 rounded-full bg-muted/40 flex items-center justify-center">
+          <Briefcase className="w-3.5 h-3.5 opacity-30 text-muted-foreground" />
         </div>
+        <p className="text-xs text-muted-foreground italic">
+          No job function data yet
+          <br />
+          <span className="text-[10px] opacity-60">
+            Import from LinkedIn to unlock
+          </span>
+        </p>
       </div>
     );
   }
-
-  const maxPct = functions[0].pct;
-
+  const agg: Record<string, number> = {};
+  postsWithJobs.forEach((p) =>
+    p.topJobFunctions!.forEach((f) => {
+      agg[f.name] = (agg[f.name] || 0) + f.pct;
+    }),
+  );
+  const fns = Object.entries(agg)
+    .map(([name, total]) => ({
+      name,
+      pct: Math.round(total / postsWithJobs.length),
+    }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
+  const maxPct = fns[0].pct;
   return (
-    <div className="space-y-2">
-      {functions.map((fn, i) => (
-        <div key={fn.name} className="flex items-center gap-2.5">
-          <span className="text-[10px] text-muted-foreground w-20 truncate shrink-0 text-right">
-            {fn.name}
-          </span>
-          <div className="flex-1 h-4 rounded-full bg-muted/60 overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${(fn.pct / maxPct) * 100}%` }}
-              transition={{ delay: i * 0.06, duration: 0.6, ease: "easeOut" }}
-              className="h-full rounded-full"
-              style={{
-                background: `linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary)/0.5))`,
-              }}
-            />
+    <div className="space-y-2.5">
+      {fns.map((fn, i) => {
+        const color = JOB_COLORS[i % JOB_COLORS.length];
+        return (
+          <div key={fn.name} className="space-y-1">
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className="text-[10px] font-semibold truncate max-w-[140px]"
+                style={{ color }}
+              >
+                {fn.name}
+              </span>
+              <span
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0"
+                style={{ background: color + "18", color }}
+              >
+                {fn.pct}%
+              </span>
+            </div>
+            <div
+              className="h-3 rounded-full overflow-hidden"
+              style={{ background: color + "15" }}
+            >
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${(fn.pct / maxPct) * 100}%` }}
+                transition={{
+                  delay: i * 0.07,
+                  duration: 0.65,
+                  ease: "easeOut",
+                }}
+                className="h-full rounded-full relative overflow-hidden"
+                style={{
+                  background: `linear-gradient(90deg, ${color}ee, ${color}88)`,
+                }}
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12" />
+              </motion.div>
+            </div>
           </div>
-          <span className="text-[10px] font-bold text-foreground w-6 text-right flex-shrink-0">
-            {fn.pct}%
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -514,6 +593,15 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
 // ─── Post Timing Bars ─────────────────────────────────────────────────────────
 function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const dayColors = [
+    "#6366f1",
+    "#0ea5e9",
+    "#10b981",
+    "#f59e0b",
+    "#8b5cf6",
+    "#ec4899",
+    "#14b8a6",
+  ];
   const counts = new Array(7).fill(0);
   posts.forEach((p) => {
     try {
@@ -521,53 +609,73 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
       if (!isNaN(d.getTime())) counts[(d.getDay() + 6) % 7]++;
     } catch {}
   });
-  const max = Math.max(...counts, 1);
   if (posts.length < 2) {
     return (
-      <div className="text-xs text-muted-foreground italic flex items-center gap-1.5">
-        <Clock className="w-3.5 h-3.5 opacity-40" /> Not enough posts to show
-        timing
+      <div className="flex flex-col items-center justify-center h-16 gap-2 text-center">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
+          <Clock className="w-3.5 h-3.5 opacity-40" /> Not enough posts yet
+        </div>
       </div>
     );
   }
+  const max = Math.max(...counts, 1);
+  const bestDay = counts.indexOf(Math.max(...counts));
   return (
-    <div className="flex items-end gap-1 h-14">
-      {days.map((day, i) => {
-        const heightPct = Math.max((counts[i] / max) * 100, 6);
-        const isActive = counts[i] > 0;
-        const bars = 3;
-        return (
-          <div key={day} className="flex flex-col items-center gap-1 flex-1">
-            <div
-              className="w-full flex flex-col-reverse gap-0.5"
-              style={{ height: "44px", justifyContent: "flex-start" }}
-            >
-              {Array.from({ length: bars }).map((_, b) => {
-                const threshold = ((b + 1) / bars) * 100;
-                const filled = heightPct >= threshold;
-                return (
-                  <motion.div
-                    key={b}
-                    initial={{ opacity: 0, scaleY: 0 }}
-                    animate={{ opacity: 1, scaleY: 1 }}
-                    transition={{ delay: i * 0.04 + b * 0.04 }}
-                    className="w-full rounded-sm"
-                    style={{
-                      height: "12px",
-                      background: filled
-                        ? isActive
-                          ? `linear-gradient(to top, hsl(var(--primary)), hsl(var(--primary)/0.7))`
-                          : "hsl(var(--muted))"
+    <div className="space-y-2">
+      <div className="flex items-end gap-2 h-20">
+        {days.map((day, i) => {
+          const heightPct = Math.max((counts[i] / max) * 100, 3);
+          const color = dayColors[i];
+          const isTop = i === bestDay && counts[i] > 0;
+          return (
+            <div key={day} className="flex flex-col items-center gap-1 flex-1">
+              {counts[i] > 0 && (
+                <span className="text-[9px] font-bold" style={{ color }}>
+                  {counts[i]}
+                </span>
+              )}
+              <div className="w-full flex-1 flex items-end">
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: `${heightPct}%`, opacity: 1 }}
+                  transition={{
+                    delay: i * 0.05,
+                    duration: 0.55,
+                    ease: "easeOut",
+                  }}
+                  className="w-full rounded-t-lg min-h-[4px] relative overflow-hidden"
+                  style={{
+                    background:
+                      counts[i] > 0
+                        ? `linear-gradient(to top, ${color}, ${color}99)`
                         : "hsl(var(--muted)/0.3)",
-                    }}
-                  />
-                );
-              })}
+                    boxShadow: isTop ? `0 0 10px ${color}55` : undefined,
+                  }}
+                >
+                  {isTop && (
+                    <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/25" />
+                  )}
+                </motion.div>
+              </div>
+              <span
+                className={`text-[9px] font-medium ${isTop ? "font-bold" : "text-muted-foreground"}`}
+                style={isTop ? { color: dayColors[i] } : {}}
+              >
+                {day}
+              </span>
             </div>
-            <span className="text-[9px] text-muted-foreground">{day}</span>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+      {bestDay !== -1 && counts[bestDay] > 0 && (
+        <p
+          className="text-[10px] text-center"
+          style={{ color: dayColors[bestDay] }}
+        >
+          Best day: <strong>{days[bestDay]}</strong> ({counts[bestDay]} post
+          {counts[bestDay] > 1 ? "s" : ""})
+        </p>
+      )}
     </div>
   );
 }
@@ -582,10 +690,6 @@ function ImpressionsLineChart({
 }) {
   const [period, setPeriod] = useState<"all" | "30d" | "90d">("all");
   const [showEngagement, setShowEngagement] = useState(false);
-  const [impressionColor, setImpressionColor] = useState("#1a6fff");
-  const [engagementColor, setEngagementColor] = useState("#10b981");
-  const impressionColorRef = useRef<HTMLInputElement>(null);
-  const engagementColorRef = useRef<HTMLInputElement>(null);
 
   const filtered = posts
     .filter((p) => {
@@ -614,58 +718,24 @@ function ImpressionsLineChart({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-xs text-muted-foreground">
-          Track impressions over time
-        </p>
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Clickable color dots */}
+        <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => impressionColorRef.current?.click()}
-              title="Change impressions color"
-              style={{ background: impressionColor }}
-              className="w-3 h-3 rounded-full border border-white/30 hover:scale-125 transition-transform"
-            />
-            <input
-              ref={impressionColorRef}
-              type="color"
-              value={impressionColor}
-              onChange={(e) => setImpressionColor(e.target.value)}
-              className="sr-only"
-            />
-            <span className="text-[10px] text-muted-foreground">Impr.</span>
+            <div className="w-3 h-3 rounded-full bg-blue-500" />
+            <span className="text-[10px] text-muted-foreground">
+              Impressions
+            </span>
           </div>
           <button
             onClick={() => setShowEngagement(!showEngagement)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-current bg-current/10" : "border-border text-muted-foreground hover:bg-muted"}`}
-            style={
-              showEngagement
-                ? {
-                    color: engagementColor,
-                    borderColor: engagementColor + "60",
-                  }
-                : {}
-            }
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-500" : "border-border text-muted-foreground hover:bg-muted"}`}
           >
-            {showEngagement && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  engagementColorRef.current?.click();
-                }}
-                style={{ background: engagementColor }}
-                className="w-3 h-3 rounded-full border border-white/30 hover:scale-125 transition-transform"
-              />
-            )}
-            <input
-              ref={engagementColorRef}
-              type="color"
-              value={engagementColor}
-              onChange={(e) => setEngagementColor(e.target.value)}
-              className="sr-only"
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${showEngagement ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
             />
             {showEngagement ? "✓" : "+"} Engagement
           </button>
+        </div>
+        <div className="flex items-center gap-1.5">
           {(["30d", "90d", "all"] as const).map((p) => (
             <button
               key={p}
@@ -725,11 +795,11 @@ function ImpressionsLineChart({
                     {d.title}
                   </p>
                   <p className="text-muted-foreground">{d.date}</p>
-                  <p style={{ color: impressionColor }} className="font-bold">
+                  <p className="text-blue-500 font-bold">
                     {fmtNum(d.views)} impressions
                   </p>
                   {showEngagement && (
-                    <p style={{ color: engagementColor }} className="font-bold">
+                    <p className="text-emerald-500 font-bold">
                       {fmtNum(d.engagement)} engagement
                     </p>
                   )}
@@ -737,14 +807,13 @@ function ImpressionsLineChart({
               );
             }}
           />
-          {showEngagement && <Legend wrapperStyle={{ fontSize: 10 }} />}
           <Line
             yAxisId="left"
             type="monotone"
             dataKey="views"
-            stroke={impressionColor}
+            stroke="#3b82f6"
             strokeWidth={2.5}
-            dot={{ r: 3, fill: impressionColor }}
+            dot={{ r: 3, fill: "#3b82f6" }}
             activeDot={{ r: 5 }}
             name="Impressions"
           />
@@ -753,9 +822,9 @@ function ImpressionsLineChart({
               yAxisId="right"
               type="monotone"
               dataKey="engagement"
-              stroke={engagementColor}
+              stroke="#10b981"
               strokeWidth={2}
-              dot={{ r: 3, fill: engagementColor }}
+              dot={{ r: 3, fill: "#10b981" }}
               activeDot={{ r: 4 }}
               name="Engagement"
             />
@@ -850,9 +919,8 @@ function AccountModal({
             <X className="w-4 h-4" />
           </button>
         </div>
-
         <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          {/* Profile picture */}
+          {/* Avatar upload */}
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
               Profile Picture / Logo
@@ -879,7 +947,7 @@ function AccountModal({
                   onClick={() => fileRef.current?.click()}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-xs font-medium hover:bg-muted transition-colors"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Upload Photo / Logo
+                  <Upload className="w-3.5 h-3.5" /> Upload Photo
                 </button>
                 {avatarUrl && (
                   <button
@@ -899,7 +967,6 @@ function AccountModal({
               />
             </div>
           </div>
-
           {/* Type toggle */}
           <div className="flex gap-2 p-1 bg-muted rounded-xl">
             {(["personal", "company"] as const).map((t) => (
@@ -922,14 +989,11 @@ function AccountModal({
               </button>
             ))}
           </div>
-
           {type === "company" && (
             <div className="px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
               💡 Company pages can't be connected via OAuth — fill in manually.
-              Upload your company logo above.
             </div>
           )}
-
           {[
             {
               label: "Name",
@@ -963,7 +1027,6 @@ function AccountModal({
               />
             </div>
           ))}
-
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "Followers", val: followers, set: setFollowers },
@@ -987,7 +1050,6 @@ function AccountModal({
               </div>
             ))}
           </div>
-
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
               Avatar Color
@@ -995,7 +1057,6 @@ function AccountModal({
             <ColorPicker value={avatarColor} onChange={setAvatarColor} />
           </div>
         </div>
-
         <div className="flex gap-3 px-6 py-4 border-t border-border bg-muted/20">
           <button
             onClick={onClose}
@@ -1063,8 +1124,8 @@ function AddPostModal({
   const [saving, setSaving] = useState(false);
   const [importError, setImportError] = useState("");
   const [importPreview, setImportPreview] = useState<LinkedInPost[]>([]);
+  const [importTitles, setImportTitles] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
-
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [postUrl, setPostUrl] = useState("");
@@ -1081,8 +1142,6 @@ function AddPostModal({
   const [tags, setTags] = useState<string[]>([]);
   const selectedReaction =
     REACTION_ICONS.find((r) => r.id === reactionIcon) ?? REACTION_ICONS[0];
-
-  const [importTitles, setImportTitles] = useState<Record<string, string>>({});
 
   const handleManualSave = async () => {
     if (!title.trim()) return;
@@ -1140,16 +1199,14 @@ function AddPostModal({
             const topLocations: Array<{ name: string; pct: number }> = [];
             const topJobFunctions: Array<{ name: string; pct: number }> = [];
             let j = i + 1;
-            while (j < rows.length && j < i + 40) {
+            while (j < rows.length && j < i + 60) {
               const k = String(rows[j]?.[0] || "").trim();
-              const v =
-                parseInt(String(rows[j]?.[1] || "0").replace(/,/g, "")) || 0;
-              const sv = String(rows[j]?.[1] || "").trim();
-              if (k === "Post Date") {
-                postDate = sv;
-              } else if (k === "Publish time") {
-                publishTime = sv;
-              } else if (k === "Impressions") impressions = v;
+              const rawVal = String(rows[j]?.[1] || "").trim();
+              const v = parseInt(rawVal.replace(/,/g, "")) || 0;
+              if (k === "Post Date") postDate = rawVal;
+              else if (k === "Publish time" || k === "Post Publish Time")
+                publishTime = rawVal;
+              else if (k === "Impressions") impressions = v;
               else if (k === "Members reached") membersReached = v;
               else if (k === "Reactions") reactions = v;
               else if (k === "Comments") comments = v;
@@ -1157,23 +1214,89 @@ function AddPostModal({
               else if (k === "Saves") saves = v;
               else if (k === "Followers gained from this post")
                 followersGained = v;
-              else if (k.startsWith("Top location") || k === "Location") {
-                const pct =
-                  parseInt(
-                    String(rows[j]?.[2] || "0").replace(/[^0-9]/g, ""),
-                  ) || v;
-                if (sv && pct > 0) topLocations.push({ name: sv, pct });
-              } else if (
-                k.startsWith("Top job function") ||
-                k === "Job function"
+              else if (
+                k === "Top location" ||
+                (k === "Top job title" &&
+                  rows[j - 1] &&
+                  String(rows[j - 1]?.[0]).includes("location"))
               ) {
-                const pct =
-                  parseInt(
-                    String(rows[j]?.[2] || "0").replace(/[^0-9]/g, ""),
-                  ) || v;
-                if (sv && pct > 0) topJobFunctions.push({ name: sv, pct });
-              } else if (k === "Post URL" && j !== i) break;
+                // location rows: next rows after "Top location" header are actual locations
+              } else if (k === "Top industry" || k === "Top job function") {
+                // skip headers
+              } else {
+                // detect if this is audience highlight data
+                // LinkedIn exports have rows like: "Lagos" with a percentage in col[2]
+                const col2 = String(rows[j]?.[2] || "").trim();
+                const pct2 = parseInt(col2.replace(/[^0-9]/g, "")) || 0;
+                // check if previous meaningful row was a location/function header
+                if (rawVal && pct2 > 0) {
+                  // scan back to find context
+                  for (let back = j - 1; back >= Math.max(j - 5, i); back--) {
+                    const bk = String(rows[back]?.[0] || "")
+                      .trim()
+                      .toLowerCase();
+                    if (bk.includes("location")) {
+                      topLocations.push({ name: rawVal, pct: pct2 });
+                      break;
+                    }
+                    if (
+                      bk.includes("job") ||
+                      bk.includes("industry") ||
+                      bk.includes("function")
+                    ) {
+                      topJobFunctions.push({ name: rawVal, pct: pct2 });
+                      break;
+                    }
+                  }
+                }
+              }
+              if (k === "Post URL" && j !== i) break;
               j++;
+            }
+            // Fallback: also scan for "Top location" headers followed by data
+            for (let scan = i + 1; scan < Math.min(j, rows.length); scan++) {
+              const scanKey = String(rows[scan]?.[0] || "").trim();
+              if (scanKey === "Top location") {
+                for (
+                  let d2 = scan + 1;
+                  d2 < scan + 6 && d2 < rows.length;
+                  d2++
+                ) {
+                  const locName = String(rows[d2]?.[1] || "").trim();
+                  const locPct =
+                    parseInt(
+                      String(rows[d2]?.[2] || "0").replace(/[^0-9]/g, ""),
+                    ) || 0;
+                  if (
+                    locName &&
+                    locPct > 0 &&
+                    !topLocations.find((l) => l.name === locName)
+                  )
+                    topLocations.push({ name: locName, pct: locPct });
+                }
+              }
+              if (
+                scanKey === "Top job function" ||
+                scanKey === "Top industry"
+              ) {
+                for (
+                  let d2 = scan + 1;
+                  d2 < scan + 6 && d2 < rows.length;
+                  d2++
+                ) {
+                  const fnName = String(rows[d2]?.[1] || "").trim();
+                  const fnPct =
+                    parseInt(
+                      String(rows[d2]?.[2] || "0").replace(/[^0-9]/g, ""),
+                    ) || 0;
+                  if (
+                    fnName &&
+                    fnPct > 0 &&
+                    !topJobFunctions.find((f) => f.name === fnName)
+                  )
+                    topJobFunctions.push({ name: fnName, pct: fnPct });
+                }
+              }
             }
             let formattedDate = new Date().toISOString().split("T")[0];
             try {
@@ -1265,7 +1388,6 @@ function AddPostModal({
             <X className="w-4 h-4" />
           </button>
         </div>
-
         <div className="flex gap-1 px-6 pt-4">
           {[
             { id: "manual", label: "Manual Entry", icon: FileText },
@@ -1299,7 +1421,6 @@ function AddPostModal({
                 className={inputCls}
               />
             </div>
-
             <details className="group">
               <summary className="flex items-center gap-2 text-xs font-semibold text-primary cursor-pointer select-none list-none">
                 <Plus className="w-3.5 h-3.5 group-open:rotate-45 transition-transform" />
@@ -1332,16 +1453,12 @@ function AddPostModal({
                 </div>
               </div>
             </details>
-
-            {/* Tags */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
                 <Tag className="w-3 h-3" /> Tags
               </label>
               <TagsPicker value={tags} onChange={setTags} />
             </div>
-
-            {/* Reaction icon */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
                 Reaction Icon
@@ -1384,7 +1501,6 @@ function AddPostModal({
                 )}
               </AnimatePresence>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               {[
                 ["Impressions 👁", views, setViews],
@@ -1406,7 +1522,6 @@ function AddPostModal({
                 </div>
               ))}
             </div>
-
             <details className="group">
               <summary className="flex items-center gap-2 text-xs font-semibold text-muted-foreground cursor-pointer select-none list-none">
                 <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform" />
@@ -1433,7 +1548,6 @@ function AddPostModal({
                 ))}
               </div>
             </details>
-
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
                 Date
@@ -1506,7 +1620,7 @@ function AddPostModal({
                           {p.date}
                         </span>
                         <span className="text-primary font-bold">
-                          {fmtNum(p.views)} impressions · {p.likes} reactions
+                          {fmtNum(p.views)} impr · {p.likes} react
                         </span>
                       </div>
                       {p.postUrl && (
@@ -1522,10 +1636,10 @@ function AddPostModal({
                           </a>
                         </div>
                       )}
-                      {/* BIGGER title input */}
-                      <div className="px-3 pb-3">
-                        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
-                          Post Name / Topic
+                      {/* BIG title input */}
+                      <div className="px-3 pb-4 pt-1">
+                        <label className="text-[10px] font-semibold text-primary/70 uppercase tracking-wider mb-2 block flex items-center gap-1">
+                          ✏️ Name this post
                         </label>
                         <input
                           value={importTitles[p.id] ?? ""}
@@ -1536,7 +1650,7 @@ function AddPostModal({
                             }))
                           }
                           placeholder="e.g. 5 AI Trends for Insurance Brokers"
-                          className="w-full px-3 py-2.5 rounded-xl bg-card border border-primary/20 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
+                          className="w-full px-4 py-3.5 rounded-xl bg-card border-2 border-primary/30 text-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/60 font-semibold transition-all"
                         />
                       </div>
                     </div>
@@ -1677,7 +1791,7 @@ function EditPostModal({
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              rows={3}
+              rows={4}
               placeholder="Post content..."
               className={inputCls + " resize-none"}
             />
@@ -1693,7 +1807,6 @@ function EditPostModal({
               className={inputCls}
             />
           </div>
-          {/* Tags */}
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
               <Tag className="w-3 h-3" /> Tags
@@ -1835,7 +1948,6 @@ function PostDetailCard({
               <h3 className="font-bold text-sm text-foreground line-clamp-2">
                 {post.title}
               </h3>
-              {/* Tags */}
               {post.tags && post.tags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
                   {post.tags.map((tid) => {
@@ -1870,15 +1982,15 @@ function PostDetailCard({
           </div>
         </div>
         <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-          {/* Post content */}
+          {/* Post content — formatted with whitespace-pre-wrap */}
           {post.content && (
             <div className="p-3 rounded-xl bg-muted/40 border border-border/50">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 Post Content
               </p>
-              <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+              <div className="text-xs text-foreground leading-relaxed whitespace-pre-wrap font-normal">
                 {post.content}
-              </p>
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-2.5">
@@ -1946,14 +2058,18 @@ function AccountCard({
   onEdit,
   onDelete,
   isSelected,
+  isExpanded,
   onSelect,
+  onExpand,
   index,
 }: {
   account: LinkedInAccount;
   onEdit: () => void;
   onDelete: () => void;
   isSelected: boolean;
+  isExpanded: boolean;
   onSelect: () => void;
+  onExpand: () => void;
   index: number;
 }) {
   const avgViews =
@@ -1973,7 +2089,6 @@ function AccountCard({
     account.posts?.length > 0
       ? account.posts.reduce((b, p) => (p.views > b.views ? p : b))
       : null;
-
   const avatarBg = getAvatarBg(account.avatarColor);
   const sparkColor = getSparkColor(account.avatarColor);
 
@@ -1983,10 +2098,17 @@ function AccountCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06 }}
       onClick={onSelect}
+      onDoubleClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onExpand();
+      }}
       className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 group ${isSelected ? "ring-2 ring-primary shadow-lg shadow-primary/10" : "hover:shadow-md hover:-translate-y-0.5"}`}
     >
       <div className="glass p-5">
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#0077b5]/60 via-[#0077b5]/20 to-transparent" />
+
+        {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             {account.avatarUrl ? (
@@ -2053,6 +2175,7 @@ function AccountCard({
           </div>
         </div>
 
+        {/* Stats */}
         <div className="grid grid-cols-4 gap-2 mb-4">
           {[
             {
@@ -2094,6 +2217,7 @@ function AccountCard({
           ))}
         </div>
 
+        {/* Sparkline row */}
         <div className="flex items-end justify-between min-h-[40px]">
           <div>
             {account.posts?.length >= 2 ? (
@@ -2132,10 +2256,11 @@ function AccountCard({
           </div>
         </div>
 
+        {/* Best post — 🏆 trophy */}
         {bestPost && (
           <div className="mt-3 pt-3 border-t border-border/50">
             <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1 flex items-center gap-1">
-              <Flame className="w-2.5 h-2.5 text-orange-400" /> Best Post
+              🏆 Best Post
             </p>
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-foreground font-medium truncate flex-1">
@@ -2148,9 +2273,16 @@ function AccountCard({
           </div>
         )}
 
-        {/* ── Expanded section: only when selected ── */}
+        {/* Double-tap hint */}
+        {!isExpanded && (
+          <p className="text-[9px] text-muted-foreground/40 text-center mt-3">
+            double-tap to expand insights
+          </p>
+        )}
+
+        {/* ── Expanded section (double-tap) ── */}
         <AnimatePresence>
-          {isSelected && (
+          {isExpanded && (
             <motion.div
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: "auto", opacity: 1 }}
@@ -2160,10 +2292,12 @@ function AccountCard({
             >
               <div className="mt-4 pt-4 border-t border-border/40 space-y-5">
                 {/* Geography */}
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <MapPin className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-semibold text-foreground">
+                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-lg bg-indigo-500/15 flex items-center justify-center">
+                      <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+                    </div>
+                    <p className="text-xs font-bold text-foreground">
                       Geography Distribution
                     </p>
                   </div>
@@ -2171,10 +2305,12 @@ function AccountCard({
                 </div>
 
                 {/* Job Functions */}
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Briefcase className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-semibold text-foreground">
+                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-lg bg-purple-500/15 flex items-center justify-center">
+                      <Briefcase className="w-3.5 h-3.5 text-purple-400" />
+                    </div>
+                    <p className="text-xs font-bold text-foreground">
                       Audience by Job Function
                     </p>
                   </div>
@@ -2182,15 +2318,21 @@ function AccountCard({
                 </div>
 
                 {/* Post timing */}
-                <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <Clock className="w-3.5 h-3.5 text-primary" />
-                    <p className="text-xs font-semibold text-foreground">
-                      Avg Post Day
+                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-6 h-6 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                      <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <p className="text-xs font-bold text-foreground">
+                      Best Posting Days
                     </p>
                   </div>
                   <PostTimingDisplay posts={account.posts ?? []} />
                 </div>
+
+                <p className="text-[9px] text-muted-foreground/40 text-center">
+                  double-tap to collapse
+                </p>
               </div>
             </motion.div>
           )}
@@ -2292,7 +2434,6 @@ function PostsTable({
             <Plus className="w-4 h-4" /> Log Post
           </button>
         </div>
-
         {!sorted.length ? (
           <div className="py-12 text-center text-muted-foreground text-sm">
             No posts logged yet — click "Log Post" above.
@@ -2364,8 +2505,15 @@ function PostsTable({
                   const reaction = REACTION_ICONS.find(
                     (r) => r.id === (post.reactionIcon ?? "none"),
                   );
-                  const isTop =
+                  // Icon logic: custom reaction takes priority. Best post (no custom reaction) gets ⭐. Others get nothing.
+                  const hasCustomReaction = reaction && reaction.id !== "none";
+                  const isBest =
                     i === 0 && sortKey === "views" && sortDir === "desc";
+                  const displayIcon = hasCustomReaction
+                    ? reaction.svg
+                    : isBest
+                      ? "⭐"
+                      : "";
                   return (
                     <tr
                       key={post.id}
@@ -2373,23 +2521,13 @@ function PostsTable({
                       className="border-b border-border/30 hover:bg-muted/20 transition-colors cursor-pointer group"
                     >
                       <td className="px-3 py-3.5 text-center text-base">
-                        {reaction && reaction.id !== "none"
-                          ? reaction.svg
-                          : isTop
-                            ? "🔥"
-                            : ""}
+                        {displayIcon}
                       </td>
                       <td className="px-4 py-3.5 max-w-[220px]">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {isTop && reaction?.id === "none" && (
-                              <Flame className="w-3 h-3 text-orange-400 flex-shrink-0" />
-                            )}
-                            <p className="text-sm font-medium text-foreground truncate">
-                              {post.title}
-                            </p>
-                          </div>
-                          {/* Tags in table */}
+                          <p className="text-sm font-medium text-foreground truncate">
+                            {post.title}
+                          </p>
                           {post.tags && post.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1 mt-1">
                               {post.tags.map((tid) => {
@@ -2454,7 +2592,6 @@ function PostsTable({
           </div>
         )}
       </div>
-
       <AnimatePresence>
         {viewPost && (
           <PostDetailCard
@@ -2492,6 +2629,9 @@ export default function LinkedInPage() {
   );
   const [showAddManual, setShowAddManual] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(
+    null,
+  );
+  const [expandedAccountId, setExpandedAccountId] = useState<string | null>(
     null,
   );
   const [showAddPost, setShowAddPost] = useState(false);
@@ -2961,9 +3101,15 @@ export default function LinkedInPage() {
               account={account}
               index={i}
               isSelected={selectedAccountId === account.id}
+              isExpanded={expandedAccountId === account.id}
               onSelect={() =>
                 setSelectedAccountId(
                   selectedAccountId === account.id ? null : account.id,
+                )
+              }
+              onExpand={() =>
+                setExpandedAccountId(
+                  expandedAccountId === account.id ? null : account.id,
                 )
               }
               onEdit={() => setEditingAccount(account)}
@@ -2973,7 +3119,7 @@ export default function LinkedInPage() {
         </div>
       )}
 
-      {/* Chart + table for selected account */}
+      {/* Chart + table */}
       {!loading && selectedAccount && (
         <motion.div
           initial={{ opacity: 0, y: 8 }}
@@ -3014,7 +3160,6 @@ export default function LinkedInPage() {
               color={selectedAccount.avatarColor || "#1a6fff"}
             />
           </div>
-
           <PostsTable
             account={selectedAccount}
             onAddPost={() => setShowAddPost(true)}
