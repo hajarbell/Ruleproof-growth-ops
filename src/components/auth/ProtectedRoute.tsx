@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useEffect, useState } from "react";
 
 function LoadingScreen() {
   return (
@@ -14,20 +15,32 @@ function LoadingScreen() {
   );
 }
 
+// Safety hook: if wsLoading stays true for more than 4 seconds, stop waiting.
+// Prevents permanent stuck screen if Firestore is slow, a browser extension
+// blocks a network response, or the snapshot listener never fires.
+function useWsLoadingWithTimeout(wsLoading: boolean) {
+  const [timedOut, setTimedOut] = useState(false);
+
+  useEffect(() => {
+    if (!wsLoading) {
+      setTimedOut(false);
+      return;
+    }
+    const t = setTimeout(() => setTimedOut(true), 4000);
+    return () => clearTimeout(t);
+  }, [wsLoading]);
+
+  return wsLoading && !timedOut;
+}
+
 // ─── RequireWorkspace ─────────────────────────────────────────────────────────
 // Protects all main app routes.
-// MUST wait for both auth AND workspace loading to finish before deciding.
-// Without this, a logged-in user briefly has workspace=null during the async
-// Firestore fetch, causing a false redirect to /setup-workspace.
 export function RequireWorkspace() {
   const { user, workspace, loading, wsLoading } = useAuth();
+  const stillLoading = useWsLoadingWithTimeout(wsLoading);
 
-  // Wait for Firebase auth to resolve
   if (loading) return <LoadingScreen />;
-
-  // If user is logged in, also wait for workspace fetch to complete
-  // before deciding whether to send them to /setup-workspace
-  if (user && wsLoading) return <LoadingScreen />;
+  if (user && stillLoading) return <LoadingScreen />;
 
   if (!user) return <Navigate to="/login" replace />;
   if (!workspace) return <Navigate to="/setup-workspace" replace />;
@@ -37,17 +50,12 @@ export function RequireWorkspace() {
 
 // ─── RedirectIfAuth ───────────────────────────────────────────────────────────
 // Wraps public pages (login, signup, forgot-password).
-// Only redirects AFTER both auth and workspace are confirmed loaded.
-// This prevents the Google redirect sign-in from looping back to /login.
 export function RedirectIfAuth() {
   const { user, workspace, loading, wsLoading } = useAuth();
+  const stillLoading = useWsLoadingWithTimeout(wsLoading);
 
-  // Wait for auth to resolve
   if (loading) return <LoadingScreen />;
-
-  // If user exists, wait for workspace fetch too — otherwise we'd redirect
-  // to /setup-workspace on every page load for a split second
-  if (user && wsLoading) return <LoadingScreen />;
+  if (user && stillLoading) return <LoadingScreen />;
 
   if (user && workspace) return <Navigate to="/" replace />;
   if (user && !workspace) return <Navigate to="/setup-workspace" replace />;
