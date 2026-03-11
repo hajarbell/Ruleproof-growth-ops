@@ -177,8 +177,32 @@ const REACTION_ICONS = [
   { id: "brain", label: "Brain", svg: "🧠" },
 ];
 
-const GEO_COLORS = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ec4899"];
-const JOB_COLORS = ["#8b5cf6", "#06b6d4", "#f97316", "#84cc16", "#f43f5e"];
+// Unified electric-blue palette — cohesive but distinct
+const CHART_COLORS = [
+  "#38bdf8",
+  "#818cf8",
+  "#6ee7b7",
+  "#a78bfa",
+  "#7dd3fc",
+  "#93c5fd",
+  "#c4b5fd",
+  "#5eead4",
+];
+const GEO_COLORS = CHART_COLORS;
+const JOB_COLORS = CHART_COLORS;
+
+// Map LinkedIn's native reaction names to our icon IDs
+function mapLinkedInReaction(raw: string): string {
+  const r = raw.toLowerCase();
+  if (r.includes("like")) return "none"; // default thumb
+  if (r.includes("love") || r.includes("heart")) return "heart";
+  if (r.includes("celebrate") || r.includes("clap")) return "clap";
+  if (r.includes("insightful") || r.includes("bulb")) return "bulb";
+  if (r.includes("support") || r.includes("empathy")) return "heart";
+  if (r.includes("curious") || r.includes("eyes")) return "eyes";
+  if (r.includes("funny") || r.includes("haha")) return "clap";
+  return "none";
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
@@ -260,8 +284,8 @@ function ColorPicker({
   const applyGradient = () => onChange(buildGradient());
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2.5 items-center">
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap gap-2 items-center p-2.5 rounded-xl bg-[#1a1a2e]/60 border border-white/8 backdrop-blur-sm">
         {/* Clear */}
         <button
           onClick={() => onChange("")}
@@ -338,7 +362,7 @@ function ColorPicker({
           initial={{ opacity: 0, y: -4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
-          className="rounded-xl border border-border bg-muted/40 p-3 space-y-3"
+          className="rounded-xl border border-white/10 bg-[#1a1a2e]/80 p-3 space-y-3 backdrop-blur-sm"
         >
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             Gradient Builder
@@ -477,10 +501,11 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
 
 // ─── Geography Bubbles ────────────────────────────────────────────────────────
 function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const postsWithGeo = posts.filter((p) => p.topLocations?.length);
   if (!postsWithGeo.length) {
     return (
-      <div className="flex flex-col items-center justify-center h-28 gap-2 text-center">
+      <div className="flex flex-col items-center justify-center h-32 gap-2 text-center">
         <div className="w-8 h-8 rounded-full bg-muted/40 flex items-center justify-center">
           <MapPin className="w-4 h-4 opacity-30 text-muted-foreground" />
         </div>
@@ -494,49 +519,47 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
       </div>
     );
   }
+  // Use MAX pct across posts (not avg) for better representation
   const agg: Record<string, number> = {};
   postsWithGeo.forEach((p) =>
     p.topLocations!.forEach((l) => {
-      agg[l.name] = (agg[l.name] || 0) + l.pct;
+      agg[l.name] = Math.max(agg[l.name] || 0, l.pct);
     }),
   );
   const locations = Object.entries(agg)
-    .map(([name, total]) => ({
-      name,
-      pct: Math.round(total / postsWithGeo.length),
-    }))
+    .map(([name, pct]) => ({ name, pct }))
     .sort((a, b) => b.pct - a.pct)
-    .slice(0, 5);
+    .slice(0, 6);
   const maxPct = locations[0].pct;
   const positions = [
-    { left: "50%", top: "50%" },
-    { left: "20%", top: "32%" },
-    { left: "76%", top: "26%" },
-    { left: "25%", top: "70%" },
-    { left: "74%", top: "68%" },
+    { left: "50%", top: "48%" },
+    { left: "18%", top: "30%" },
+    { left: "80%", top: "24%" },
+    { left: "22%", top: "72%" },
+    { left: "78%", top: "70%" },
+    { left: "52%", top: "18%" },
   ];
   return (
     <div
-      className="relative h-40 w-full rounded-xl overflow-hidden"
+      className="relative h-52 w-full rounded-xl overflow-hidden"
       style={{
         background:
-          "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.4) 0%, transparent 70%)",
+          "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.3) 0%, transparent 80%)",
       }}
     >
-      {/* subtle grid lines */}
       <svg
-        className="absolute inset-0 w-full h-full opacity-10"
+        className="absolute inset-0 w-full h-full opacity-[0.07]"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
           <pattern
             id="geo-grid"
-            width="20"
-            height="20"
+            width="24"
+            height="24"
             patternUnits="userSpaceOnUse"
           >
             <path
-              d="M 20 0 L 0 0 0 20"
+              d="M 24 0 L 0 0 0 24"
               fill="none"
               stroke="currentColor"
               strokeWidth="0.5"
@@ -546,20 +569,32 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
         <rect width="100%" height="100%" fill="url(#geo-grid)" />
       </svg>
       {locations.map((loc, i) => {
-        const size = 42 + (loc.pct / maxPct) * 70;
+        const size = 52 + (loc.pct / maxPct) * 72;
         const pos = positions[i] ?? { left: "50%", top: "50%" };
         const color = GEO_COLORS[i % GEO_COLORS.length];
+        const isHov = hoveredIdx === i;
         return (
           <motion.div
             key={loc.name}
             initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{
-              delay: i * 0.08,
-              type: "spring",
-              stiffness: 200,
-              damping: 14,
-            }}
+            animate={{ scale: isHov ? 1.08 : 1, opacity: 1 }}
+            transition={
+              i === 0
+                ? {
+                    delay: i * 0.08,
+                    type: "spring",
+                    stiffness: 200,
+                    damping: 14,
+                  }
+                : {
+                    delay: i * 0.08,
+                    type: "spring",
+                    stiffness: 200,
+                    damping: 14,
+                  }
+            }
+            onHoverStart={() => setHoveredIdx(i)}
+            onHoverEnd={() => setHoveredIdx(null)}
             style={{
               position: "absolute",
               left: pos.left,
@@ -567,13 +602,16 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
               transform: "translate(-50%,-50%)",
               width: size,
               height: size,
-              background: `radial-gradient(circle at 38% 38%, ${color}50, ${color}18)`,
-              border: `1.5px solid ${color}70`,
-              boxShadow: `0 0 ${size * 0.4}px ${color}28`,
+              background: `radial-gradient(circle at 36% 36%, ${color}55, ${color}18)`,
+              border: `1.5px solid ${color}${isHov ? "cc" : "60"}`,
+              boxShadow: isHov
+                ? `0 0 ${size * 0.5}px ${color}45, 0 0 ${size * 0.2}px ${color}30`
+                : `0 0 ${size * 0.3}px ${color}20`,
               borderRadius: "50%",
+              cursor: "default",
+              zIndex: isHov ? 10 : i,
             }}
             className="flex flex-col items-center justify-center"
-            title={`${loc.name}: ~${loc.pct}%`}
           >
             <span
               className="text-[12px] font-bold leading-none drop-shadow-sm"
@@ -582,11 +620,25 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
               {loc.pct}%
             </span>
             <span
-              className="text-[8px] text-center px-1 leading-tight mt-0.5 truncate max-w-full font-medium"
+              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
               style={{ color: color + "dd" }}
             >
               {loc.name}
             </span>
+            {isHov && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
+              >
+                <span className="font-semibold" style={{ color }}>
+                  {loc.name}
+                </span>
+                <span className="text-muted-foreground ml-1">
+                  {loc.pct}% of audience
+                </span>
+              </motion.div>
+            )}
           </motion.div>
         );
       })}
@@ -596,6 +648,7 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
 
 // ─── Job Function Bars ────────────────────────────────────────────────────────
 function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const postsWithJobs = posts.filter((p) => p.topJobFunctions?.length);
   if (!postsWithJobs.length) {
     return (
@@ -604,7 +657,7 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
           <Briefcase className="w-3.5 h-3.5 opacity-30 text-muted-foreground" />
         </div>
         <p className="text-xs text-muted-foreground italic">
-          No job function data yet
+          No job title data yet
           <br />
           <span className="text-[10px] opacity-60">
             Import from LinkedIn to unlock
@@ -616,44 +669,51 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
   const agg: Record<string, number> = {};
   postsWithJobs.forEach((p) =>
     p.topJobFunctions!.forEach((f) => {
-      agg[f.name] = (agg[f.name] || 0) + f.pct;
+      agg[f.name] = Math.max(agg[f.name] || 0, f.pct);
     }),
   );
   const fns = Object.entries(agg)
-    .map(([name, total]) => ({
-      name,
-      pct: Math.round(total / postsWithJobs.length),
-    }))
+    .map(([name, pct]) => ({ name, pct }))
     .sort((a, b) => b.pct - a.pct)
-    .slice(0, 5);
+    .slice(0, 6);
   const maxPct = fns[0].pct;
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-3">
       {fns.map((fn, i) => {
         const color = JOB_COLORS[i % JOB_COLORS.length];
+        const isHov = hoveredIdx === i;
+        const barW = (fn.pct / maxPct) * 100;
         return (
-          <div key={fn.name} className="space-y-1">
+          <div
+            key={fn.name}
+            className="space-y-1.5 cursor-default"
+            onMouseEnter={() => setHoveredIdx(i)}
+            onMouseLeave={() => setHoveredIdx(null)}
+          >
             <div className="flex items-center justify-between gap-2">
               <span
-                className="text-[10px] font-semibold truncate max-w-[140px]"
-                style={{ color }}
+                className="text-[10px] font-semibold truncate max-w-[180px] transition-all"
+                style={{ color: isHov ? color : color + "cc" }}
               >
                 {fn.name}
               </span>
               <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0"
-                style={{ background: color + "18", color }}
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0 transition-all"
+                style={{
+                  background: isHov ? color + "28" : color + "14",
+                  color,
+                }}
               >
                 {fn.pct}%
               </span>
             </div>
             <div
-              className="h-3 rounded-full overflow-hidden"
-              style={{ background: color + "15" }}
+              className="h-3.5 rounded-full overflow-hidden"
+              style={{ background: color + "12" }}
             >
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(fn.pct / maxPct) * 100}%` }}
+                animate={{ width: `${barW}%` }}
                 transition={{
                   delay: i * 0.07,
                   duration: 0.65,
@@ -661,7 +721,8 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
                 }}
                 className="h-full rounded-full relative overflow-hidden"
                 style={{
-                  background: `linear-gradient(90deg, ${color}ee, ${color}88)`,
+                  background: `linear-gradient(90deg, ${color}f0, ${color}70)`,
+                  boxShadow: isHov ? `0 0 6px ${color}60` : "none",
                 }}
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12" />
@@ -674,91 +735,228 @@ function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
   );
 }
 
-// ─── Post Timing Bars ─────────────────────────────────────────────────────────
+// ─── Post Timing: Best Hour + Best Day by engagement ─────────────────────────
 function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
+  const [tab, setTab] = useState<"hour" | "day">("hour");
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const dayColors = [
-    "#6366f1",
-    "#0ea5e9",
-    "#10b981",
-    "#f59e0b",
-    "#8b5cf6",
-    "#ec4899",
-    "#14b8a6",
-  ];
-  const counts = new Array(7).fill(0);
+  const TEAL = "#38bdf8";
+  const VIOLET = "#818cf8";
+
+  // ── Best Hour (from publishTime field e.g. "2:41 PM") ────────────────────
+  const hourEngagement: Record<number, { total: number; count: number }> = {};
+  posts.forEach((p) => {
+    if (!p.publishTime) return;
+    try {
+      const match = p.publishTime.match(/(\d+):(\d+)\s*(AM|PM)/i);
+      if (!match) return;
+      let h = parseInt(match[1]);
+      if (match[3].toUpperCase() === "PM" && h !== 12) h += 12;
+      if (match[3].toUpperCase() === "AM" && h === 12) h = 0;
+      if (!hourEngagement[h]) hourEngagement[h] = { total: 0, count: 0 };
+      hourEngagement[h].total += p.likes + p.comments + p.reposts;
+      hourEngagement[h].count++;
+    } catch {}
+  });
+
+  const hourData = Object.entries(hourEngagement)
+    .map(([h, v]) => ({
+      hour: parseInt(h),
+      avg: Math.round(v.total / v.count),
+      count: v.count,
+    }))
+    .sort((a, b) => a.hour - b.hour);
+
+  const fmt12 = (h: number) => {
+    if (h === 0) return "12am";
+    if (h < 12) return `${h}am`;
+    if (h === 12) return "12pm";
+    return `${h - 12}pm`;
+  };
+
+  // ── Best Day by avg engagement ─────────────────────────────────────────────
+  const dayEngagement: Record<number, { total: number; count: number }> = {};
   posts.forEach((p) => {
     try {
       const d = new Date(p.date);
-      if (!isNaN(d.getTime())) counts[(d.getDay() + 6) % 7]++;
+      if (isNaN(d.getTime())) return;
+      const di = (d.getDay() + 6) % 7;
+      if (!dayEngagement[di]) dayEngagement[di] = { total: 0, count: 0 };
+      dayEngagement[di].total += p.likes + p.comments + p.reposts;
+      dayEngagement[di].count++;
     } catch {}
   });
-  if (posts.length < 2) {
+  const dayData = days.map((name, i) => ({
+    name,
+    avg: dayEngagement[i]
+      ? Math.round(dayEngagement[i].total / dayEngagement[i].count)
+      : 0,
+    count: dayEngagement[i]?.count ?? 0,
+  }));
+
+  const hasTiming = hourData.length > 0;
+  const hasDays = dayData.some((d) => d.count > 0);
+
+  if (!hasTiming && !hasDays)
     return (
-      <div className="flex flex-col items-center justify-center h-16 gap-2 text-center">
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
-          <Clock className="w-3.5 h-3.5 opacity-40" /> Not enough posts yet
-        </div>
+      <div className="flex flex-col items-center justify-center h-16 gap-1.5 text-center">
+        <Clock className="w-4 h-4 opacity-30 text-muted-foreground" />
+        <p className="text-[10px] text-muted-foreground italic">
+          Import posts with times to unlock
+        </p>
       </div>
     );
-  }
-  const max = Math.max(...counts, 1);
-  const bestDay = counts.indexOf(Math.max(...counts));
+
+  const maxHour = Math.max(...hourData.map((h) => h.avg), 1);
+  const maxDay = Math.max(...dayData.map((d) => d.avg), 1);
+  const bestHourIdx = hourData.reduce(
+    (bi, h, i) => (h.avg > hourData[bi].avg ? i : bi),
+    0,
+  );
+  const bestDayIdx = dayData.reduce(
+    (bi, d, i) => (d.avg > dayData[bi].avg ? i : bi),
+    0,
+  );
+
   return (
-    <div className="space-y-2">
-      <div className="flex items-end gap-2 h-20">
-        {days.map((day, i) => {
-          const heightPct = Math.max((counts[i] / max) * 100, 3);
-          const color = dayColors[i];
-          const isTop = i === bestDay && counts[i] > 0;
-          return (
-            <div key={day} className="flex flex-col items-center gap-1 flex-1">
-              {counts[i] > 0 && (
-                <span className="text-[9px] font-bold" style={{ color }}>
-                  {counts[i]}
-                </span>
-              )}
-              <div className="w-full flex-1 flex items-end">
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: `${heightPct}%`, opacity: 1 }}
-                  transition={{
-                    delay: i * 0.05,
-                    duration: 0.55,
-                    ease: "easeOut",
-                  }}
-                  className="w-full rounded-t-lg min-h-[4px] relative overflow-hidden"
-                  style={{
-                    background:
-                      counts[i] > 0
-                        ? `linear-gradient(to top, ${color}, ${color}99)`
-                        : "hsl(var(--muted)/0.3)",
-                    boxShadow: isTop ? `0 0 10px ${color}55` : undefined,
-                  }}
-                >
-                  {isTop && (
-                    <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/25" />
-                  )}
-                </motion.div>
-              </div>
-              <span
-                className={`text-[9px] font-medium ${isTop ? "font-bold" : "text-muted-foreground"}`}
-                style={isTop ? { color: dayColors[i] } : {}}
-              >
-                {day}
-              </span>
-            </div>
-          );
-        })}
+    <div className="space-y-3">
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 rounded-lg bg-muted/30 w-fit">
+        {(["hour", "day"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            {t === "hour" ? "⏰ Best Hour" : "📅 Best Day"}
+          </button>
+        ))}
       </div>
-      {bestDay !== -1 && counts[bestDay] > 0 && (
-        <p
-          className="text-[10px] text-center"
-          style={{ color: dayColors[bestDay] }}
-        >
-          Best day: <strong>{days[bestDay]}</strong> ({counts[bestDay]} post
-          {counts[bestDay] > 1 ? "s" : ""})
-        </p>
+
+      {tab === "hour" && hasTiming && (
+        <div className="space-y-2">
+          <div
+            className="flex items-end gap-1.5 h-24"
+            style={{ scrollbarWidth: "none" }}
+          >
+            {hourData.map((h, i) => {
+              const heightPct = Math.max((h.avg / maxHour) * 100, 4);
+              const isBest = i === bestHourIdx;
+              const color = isBest ? TEAL : VIOLET + "80";
+              return (
+                <div
+                  key={h.hour}
+                  className="flex flex-col items-center gap-1 flex-1 min-w-[28px] group relative"
+                >
+                  {/* tooltip on hover */}
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                    <p className="font-bold" style={{ color: TEAL }}>
+                      {fmt12(h.hour)}
+                    </p>
+                    <p className="text-muted-foreground">
+                      ~{fmtNum(h.avg)} eng
+                    </p>
+                  </div>
+                  <div className="w-full flex-1 flex items-end">
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: `${heightPct}%`, opacity: 1 }}
+                      transition={{
+                        delay: i * 0.04,
+                        duration: 0.5,
+                        ease: "easeOut",
+                      }}
+                      className="w-full rounded-t-md min-h-[3px] relative overflow-hidden"
+                      style={{
+                        background: isBest
+                          ? `linear-gradient(to top, ${TEAL}, ${TEAL}88)`
+                          : `hsl(var(--muted)/0.4)`,
+                        boxShadow: isBest ? `0 0 8px ${TEAL}50` : "none",
+                      }}
+                    >
+                      {isBest && (
+                        <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/30" />
+                      )}
+                    </motion.div>
+                  </div>
+                  <span
+                    className={`text-[8px] ${isBest ? "font-bold" : "text-muted-foreground/60"}`}
+                    style={isBest ? { color: TEAL } : {}}
+                  >
+                    {fmt12(h.hour)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-center" style={{ color: TEAL }}>
+            Best: <strong>{fmt12(hourData[bestHourIdx]?.hour)}</strong> · avg{" "}
+            {fmtNum(hourData[bestHourIdx]?.avg)} engagement
+          </p>
+        </div>
+      )}
+
+      {tab === "day" && hasDays && (
+        <div className="space-y-2">
+          <div className="flex items-end gap-1.5 h-24">
+            {dayData.map((d, i) => {
+              const heightPct = Math.max((d.avg / maxDay) * 100, 4);
+              const isBest = i === bestDayIdx && d.count > 0;
+              return (
+                <div
+                  key={d.name}
+                  className="flex flex-col items-center gap-1 flex-1 group relative"
+                >
+                  <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+                    <p className="font-bold" style={{ color: VIOLET }}>
+                      {d.name}
+                    </p>
+                    <p className="text-muted-foreground">
+                      ~{fmtNum(d.avg)} avg eng
+                    </p>
+                  </div>
+                  <div className="w-full flex-1 flex items-end">
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{
+                        height: d.count > 0 ? `${heightPct}%` : "4px",
+                        opacity: 1,
+                      }}
+                      transition={{
+                        delay: i * 0.05,
+                        duration: 0.5,
+                        ease: "easeOut",
+                      }}
+                      className="w-full rounded-t-md min-h-[3px] relative overflow-hidden"
+                      style={{
+                        background:
+                          d.count > 0
+                            ? isBest
+                              ? `linear-gradient(to top,${VIOLET},${VIOLET}80)`
+                              : `${VIOLET}40`
+                            : "hsl(var(--muted)/0.25)",
+                        boxShadow: isBest ? `0 0 8px ${VIOLET}50` : "none",
+                      }}
+                    >
+                      {isBest && (
+                        <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/30" />
+                      )}
+                    </motion.div>
+                  </div>
+                  <span
+                    className={`text-[8px] ${isBest ? "font-bold" : "text-muted-foreground/60"}`}
+                    style={isBest ? { color: VIOLET } : {}}
+                  >
+                    {d.name}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-center" style={{ color: VIOLET }}>
+            Best: <strong>{dayData[bestDayIdx]?.name}</strong> · avg{" "}
+            {fmtNum(dayData[bestDayIdx]?.avg)} engagement
+          </p>
+        </div>
       )}
     </div>
   );
@@ -829,47 +1027,39 @@ function ImpressionsLineChart({
             className="sr-only"
           />
 
-          {/* Engagement toggle + color */}
-          <button
-            onClick={() => setShowEngagement(!showEngagement)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-current/50 bg-current/10" : "border-border text-muted-foreground hover:bg-muted"}`}
-            style={
-              showEngagement
-                ? {
-                    color: engagementColor,
-                    borderColor: engagementColor + "50",
-                    background: engagementColor + "15",
-                  }
-                : {}
-            }
-          >
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{
-                background: showEngagement
-                  ? engagementColor
-                  : "hsl(var(--muted-foreground)/0.4)",
-              }}
-            />
-            {showEngagement ? "✓" : "+"} Engagement
-          </button>
-          {showEngagement && (
-            <>
+          {/* Engagement toggle — dot is clickable for color when active */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setShowEngagement(!showEngagement)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-current/40 bg-current/8" : "border-border text-muted-foreground hover:bg-muted"}`}
+              style={
+                showEngagement
+                  ? {
+                      color: engagementColor,
+                      borderColor: engagementColor + "40",
+                      background: engagementColor + "12",
+                    }
+                  : {}
+              }
+            >
+              {showEngagement ? "✓" : "+"} Engagement
+            </button>
+            {showEngagement && (
               <button
                 onClick={() => engColorRef.current?.click()}
                 title="Change engagement color"
-                className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform"
+                className="w-3 h-3 rounded-full border border-white/20 hover:scale-125 transition-transform flex-shrink-0"
                 style={{ background: engagementColor }}
               />
-              <input
-                ref={engColorRef}
-                type="color"
-                value={engagementColor}
-                onChange={(e) => setEngagementColor(e.target.value)}
-                className="sr-only"
-              />
-            </>
-          )}
+            )}
+          </div>
+          <input
+            ref={engColorRef}
+            type="color"
+            value={engagementColor}
+            onChange={(e) => setEngagementColor(e.target.value)}
+            className="sr-only"
+          />
         </div>
         <div className="flex items-center gap-1.5">
           {(["30d", "90d", "all"] as const).map((p) => (
@@ -883,7 +1073,7 @@ function ImpressionsLineChart({
           ))}
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={160}>
+      <ResponsiveContainer width="100%" height={170}>
         <LineChart
           data={filtered}
           margin={{
@@ -1415,7 +1605,9 @@ function AddPostModal({
           sends,
           date: formattedDate,
           publishTime: publishTime || "",
-          reactionIcon: "none",
+          reactionIcon: kv["Top reaction type"]
+            ? mapLinkedInReaction(kv["Top reaction type"])
+            : "none",
           tags: [],
           ...(topLocations.length ? { topLocations } : {}),
           ...(topJobFunctions.length ? { topJobFunctions } : {}),
@@ -2065,7 +2257,13 @@ function PostDetailCard({
             </button>
           </div>
         </div>
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div
+          className="p-5 space-y-4 max-h-[75vh] overflow-y-auto"
+          style={{
+            scrollbarWidth: "thin",
+            scrollbarColor: "transparent transparent",
+          }}
+        >
           {/* Post content — formatted with whitespace-pre-wrap */}
           {post.content && (
             <div className="p-3 rounded-xl bg-muted/40 border border-border/50">
@@ -2126,8 +2324,8 @@ function PostDetailCard({
             )}
           </div>
           {post.followersGained ? (
-            <div className="px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-500">
-              +{post.followersGained} followers gained from this post
+            <div className="px-3 py-2 rounded-xl bg-sky-500/8 border border-sky-500/20 text-xs text-sky-400/90">
+              +{post.followersGained} followers from this post
             </div>
           ) : null}
         </div>
@@ -2159,7 +2357,7 @@ function AccountInsightsOverlay({
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
           transition={{ type: "spring", stiffness: 260, damping: 22 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-card border border-border rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden"
+          className="bg-card border border-border rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden"
         >
           {/* Top bar */}
           <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
@@ -2199,7 +2397,13 @@ function AccountInsightsOverlay({
           </div>
 
           {/* Content */}
-          <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          <div
+            className="p-5 space-y-4 max-h-[75vh] overflow-y-auto"
+            style={{
+              scrollbarWidth: "thin",
+              scrollbarColor: "transparent transparent",
+            }}
+          >
             {/* Geography */}
             <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -2234,80 +2438,84 @@ function AccountInsightsOverlay({
               <JobFunctionBars posts={account.posts ?? []} />
             </div>
 
-            {/* Industries */}
+            {/* Industries — circles */}
             {(() => {
-              const allIndustries: Array<{ name: string; pct: number }> = [];
+              const allInd: Array<{ name: string; pct: number }> = [];
               (account.posts ?? []).forEach((p) =>
-                p.topIndustries?.forEach((i) => {
-                  const ex = allIndustries.find((x) => x.name === i.name);
-                  if (ex) ex.pct = Math.max(ex.pct, i.pct);
-                  else allIndustries.push({ ...i });
+                p.topIndustries?.forEach((ind) => {
+                  const ex = allInd.find((x) => x.name === ind.name);
+                  if (ex) ex.pct = Math.max(ex.pct, ind.pct);
+                  else allInd.push({ ...ind });
                 }),
               );
-              if (!allIndustries.length) return null;
-              const COLORS = [
-                "#f97316",
-                "#84cc16",
-                "#06b6d4",
-                "#8b5cf6",
-                "#f43f5e",
-              ];
-              const maxPct = Math.max(...allIndustries.map((i) => i.pct));
+              if (!allInd.length) return null;
+              const maxP = Math.max(...allInd.map((i) => i.pct));
               return (
                 <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-7 h-7 rounded-xl bg-orange-500/15 flex items-center justify-center">
-                      <span className="text-sm">🏭</span>
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-7 h-7 rounded-xl bg-sky-500/15 flex items-center justify-center">
+                      <Building2 className="w-3.5 h-3.5 text-sky-400" />
                     </div>
                     <div>
                       <p className="text-xs font-bold text-foreground">
                         Industries
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Sectors your audience works in
+                        Sectors your audience works in · hover for details
                       </p>
                     </div>
                   </div>
-                  <div className="space-y-2.5">
-                    {allIndustries.slice(0, 5).map((ind, i) => {
-                      const color = COLORS[i % COLORS.length];
+                  <div className="flex flex-wrap gap-3 justify-center">
+                    {allInd.slice(0, 6).map((ind, i) => {
+                      const color = CHART_COLORS[i % CHART_COLORS.length];
+                      const size = 58 + (ind.pct / maxP) * 40;
                       return (
-                        <div key={ind.name} className="space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <span
-                              className="text-[10px] font-semibold truncate max-w-[150px]"
-                              style={{ color }}
-                            >
+                        <motion.div
+                          key={ind.name}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{
+                            delay: i * 0.07,
+                            type: "spring",
+                            stiffness: 220,
+                            damping: 16,
+                          }}
+                          whileHover={{ scale: 1.1 }}
+                          title={`${ind.name}: ${ind.pct}%`}
+                          className="flex flex-col items-center justify-center rounded-full text-center cursor-default relative group"
+                          style={{
+                            width: size,
+                            height: size,
+                            background: `radial-gradient(circle at 36% 36%, ${color}40, ${color}15)`,
+                            border: `1.5px solid ${color}55`,
+                            boxShadow: `0 0 ${size * 0.3}px ${color}22`,
+                          }}
+                        >
+                          <span
+                            className="text-[11px] font-bold"
+                            style={{ color }}
+                          >
+                            {ind.pct}%
+                          </span>
+                          <span
+                            className="text-[7px] leading-tight px-1.5 text-center"
+                            style={{ color: color + "cc" }}
+                            dangerouslySetInnerHTML={{
+                              __html:
+                                ind.name.length > 14
+                                  ? ind.name.replace(/ /g, "<br/>").slice(0, 24)
+                                  : ind.name,
+                            }}
+                          />
+                          <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
+                            <span className="font-semibold" style={{ color }}>
                               {ind.name}
                             </span>
-                            <span
-                              className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0"
-                              style={{ background: color + "18", color }}
-                            >
+                            <span className="text-muted-foreground ml-1">
                               {ind.pct}%
                             </span>
                           </div>
-                          <div
-                            className="h-3 rounded-full overflow-hidden"
-                            style={{ background: color + "15" }}
-                          >
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{
-                                width: `${(ind.pct / maxPct) * 100}%`,
-                              }}
-                              transition={{
-                                delay: i * 0.07,
-                                duration: 0.6,
-                                ease: "easeOut",
-                              }}
-                              className="h-full rounded-full"
-                              style={{
-                                background: `linear-gradient(90deg, ${color}ee, ${color}88)`,
-                              }}
-                            />
-                          </div>
-                        </div>
+                        </motion.div>
                       );
                     })}
                   </div>
@@ -2315,75 +2523,121 @@ function AccountInsightsOverlay({
               );
             })()}
 
-            {/* Seniority */}
+            {/* Seniority — bubble style like geo */}
             {(() => {
-              const allSeniority: Array<{ name: string; pct: number }> = [];
+              const allSen: Array<{ name: string; pct: number }> = [];
               (account.posts ?? []).forEach((p) =>
                 p.topSeniority?.forEach((s) => {
-                  const ex = allSeniority.find((x) => x.name === s.name);
+                  const ex = allSen.find((x) => x.name === s.name);
                   if (ex) ex.pct = Math.max(ex.pct, s.pct);
-                  else allSeniority.push({ ...s });
+                  else allSen.push({ ...s });
                 }),
               );
-              if (!allSeniority.length) return null;
-              const COLORS = [
-                "#6366f1",
-                "#0ea5e9",
-                "#10b981",
-                "#f59e0b",
-                "#ec4899",
+              if (!allSen.length) return null;
+              const sorted = [...allSen]
+                .sort((a, b) => b.pct - a.pct)
+                .slice(0, 6);
+              const maxP = sorted[0].pct;
+              const positions = [
+                { left: "50%", top: "50%" },
+                { left: "20%", top: "35%" },
+                { left: "78%", top: "30%" },
+                { left: "24%", top: "72%" },
+                { left: "76%", top: "70%" },
+                { left: "52%", top: "14%" },
               ];
-              const maxPct = Math.max(...allSeniority.map((s) => s.pct));
               return (
                 <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
                   <div className="flex items-center gap-2 mb-3">
-                    <div className="w-7 h-7 rounded-xl bg-cyan-500/15 flex items-center justify-center">
-                      <span className="text-sm">📊</span>
+                    <div className="w-7 h-7 rounded-xl bg-violet-500/15 flex items-center justify-center">
+                      <Users className="w-3.5 h-3.5 text-violet-400" />
                     </div>
                     <div>
                       <p className="text-xs font-bold text-foreground">
                         Seniority
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Career level of your audience
+                        Career level of your audience · hover for details
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 flex-wrap">
-                    {allSeniority.slice(0, 6).map((s, i) => {
-                      const color = COLORS[i % COLORS.length];
-                      const size = 44 + (s.pct / maxPct) * 40;
+                  <div
+                    className="relative h-48 w-full rounded-xl overflow-hidden"
+                    style={{
+                      background:
+                        "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.25) 0%, transparent 80%)",
+                    }}
+                  >
+                    <svg
+                      className="absolute inset-0 w-full h-full opacity-[0.06]"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <defs>
+                        <pattern
+                          id="sen-grid"
+                          width="24"
+                          height="24"
+                          patternUnits="userSpaceOnUse"
+                        >
+                          <path
+                            d="M 24 0 L 0 0 0 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="0.5"
+                          />
+                        </pattern>
+                      </defs>
+                      <rect width="100%" height="100%" fill="url(#sen-grid)" />
+                    </svg>
+                    {sorted.map((s, i) => {
+                      const size = 48 + (s.pct / maxP) * 60;
+                      const pos = positions[i] ?? { left: "50%", top: "50%" };
+                      const color = CHART_COLORS[(i + 1) % CHART_COLORS.length];
                       return (
                         <motion.div
                           key={s.name}
                           initial={{ scale: 0, opacity: 0 }}
                           animate={{ scale: 1, opacity: 1 }}
                           transition={{
-                            delay: i * 0.06,
+                            delay: i * 0.08,
                             type: "spring",
-                            stiffness: 220,
-                            damping: 16,
+                            stiffness: 200,
+                            damping: 14,
                           }}
-                          className="flex flex-col items-center justify-center rounded-2xl text-center"
+                          whileHover={{ scale: 1.1, zIndex: 20 }}
+                          className="absolute flex flex-col items-center justify-center group cursor-default"
                           style={{
+                            left: pos.left,
+                            top: pos.top,
+                            transform: "translate(-50%,-50%)",
                             width: size,
                             height: size,
-                            background: color + "18",
-                            border: `1.5px solid ${color}50`,
+                            borderRadius: "50%",
+                            background: `radial-gradient(circle at 36% 36%, ${color}50, ${color}18)`,
+                            border: `1.5px solid ${color}60`,
+                            boxShadow: `0 0 ${size * 0.35}px ${color}25`,
                           }}
                         >
                           <span
-                            className="text-[11px] font-bold leading-none"
+                            className="text-[11px] font-bold leading-none drop-shadow-sm"
                             style={{ color }}
                           >
                             {s.pct}%
                           </span>
                           <span
-                            className="text-[8px] leading-tight px-1 mt-0.5"
+                            className="text-[8px] text-center px-1 leading-tight mt-0.5"
                             style={{ color: color + "cc" }}
                           >
                             {s.name}
                           </span>
+                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 shadow-lg">
+                            <span className="font-semibold" style={{ color }}>
+                              {s.name}
+                            </span>
+                            <span className="text-muted-foreground ml-1">
+                              {s.pct}% of audience
+                            </span>
+                          </div>
                         </motion.div>
                       );
                     })}
@@ -2400,10 +2654,10 @@ function AccountInsightsOverlay({
                 </div>
                 <div>
                   <p className="text-xs font-bold text-foreground">
-                    Best Posting Days
+                    Best Posting Time
                   </p>
                   <p className="text-[10px] text-muted-foreground">
-                    Based on your post history
+                    Hour & day by avg engagement
                   </p>
                 </div>
               </div>
