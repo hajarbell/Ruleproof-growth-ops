@@ -120,7 +120,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     setWsMenuOpen(false);
     await logout();
-    navigate("/login");
+    navigate("/logged-out");
   };
 
   return (

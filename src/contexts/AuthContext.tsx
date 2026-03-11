@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useState,
+  useRef,
   ReactNode,
 } from "react";
 import {
@@ -29,6 +30,7 @@ import {
   where,
   arrayUnion,
   arrayRemove,
+  onSnapshot,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
@@ -58,7 +60,8 @@ interface AuthContextType {
   workspace: Workspace | null;
   members: WorkspaceMember[];
   myRole: MemberRole | null;
-  loading: boolean;
+  loading: boolean; // true while Firebase auth state is resolving
+  wsLoading: boolean; // true while workspace data is being fetched
   signInWithGoogle: (
     inviteToken?: string,
     inviteRole?: string,
@@ -101,8 +104,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [myRole, setMyRole] = useState<MemberRole | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // auth loading
+  const [wsLoading, setWsLoading] = useState(false); // workspace loading
 
+  // Holds the Firestore unsubscribe function for the live workspace listener
+  const wsUnsubRef = useRef<(() => void) | null>(null);
+
+  // ─── Subscribe to workspace with live updates ─────────────────────────────
+  // Called once we know the workspaceId. Sets up onSnapshot so members list
+  // and roles update in real-time across all tabs/users without a page refresh.
+  const subscribeToWorkspace = (workspaceId: string, uid: string) => {
+    // Unsubscribe from any previous workspace listener first
+    if (wsUnsubRef.current) {
+      wsUnsubRef.current();
+      wsUnsubRef.current = null;
+    }
+
+    setWsLoading(true);
+
+    const wsRef = doc(db, "workspaces", workspaceId);
+    const unsub = onSnapshot(wsRef, (snap) => {
+      if (!snap.exists()) {
+        setWorkspace(null);
+        setMembers([]);
+        setMyRole(null);
+        setWsLoading(false);
+        return;
+      }
+
+      const wsData = snap.data();
+      const ws: Workspace = { id: snap.id, ...wsData } as Workspace;
+
+      let membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
+        ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
+        : [];
+
+      setWorkspace(ws);
+      setMembers(membersArr);
+
+      // Check if current user is still a member (handles removal case)
+      const me = membersArr.find((m) => m.uid === uid);
+      if (ws.ownerId === uid) {
+        setMyRole("admin");
+      } else if (me) {
+        setMyRole(me.role);
+      } else {
+        // User was removed — clear workspace access
+        setWorkspace(null);
+        setMembers([]);
+        setMyRole(null);
+      }
+
+      setWsLoading(false);
+    });
+
+    wsUnsubRef.current = unsub;
+  };
+
+  // ─── Load workspace for a user ────────────────────────────────────────────
   const loadWorkspace = async (uid: string, currentUser?: User | null) => {
     const u = currentUser ?? user;
 
@@ -123,47 +182,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    if (!workspaceId) return;
-
-    const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
-    if (!wsDoc.exists()) return;
-
-    const wsData = wsDoc.data();
-    const ws: Workspace = { id: wsDoc.id, ...wsData } as Workspace;
-
-    // 3. Parse members array
-    let membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
-      ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
-      : [];
-
-    // 4. Bootstrap owner if empty
-    if (membersArr.length === 0) {
-      const ownerMember: WorkspaceMember = {
-        uid,
-        email: userDoc.data()?.email ?? u?.email ?? "",
-        displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
-        photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
-        role: "admin",
-        joinedAt: new Date().toISOString(),
-      };
-      membersArr = [ownerMember];
-      await updateDoc(doc(db, "workspaces", workspaceId), {
-        members: membersArr,
-      });
+    // 3. Also check: is this user a member of any workspace?
+    if (!workspaceId) {
+      const q = query(
+        collection(db, "workspaces"),
+        where("members", "array-contains", { uid } as any),
+      );
+      // array-contains on object doesn't work directly — skip this,
+      // rely on user doc having workspaceId set during joinWorkspaceByToken
     }
 
-    setWorkspace(ws);
-    setMembers(membersArr);
-    const me = membersArr.find((m) => m.uid === uid);
-    setMyRole(ws.ownerId === uid ? "admin" : (me?.role ?? "guest"));
+    if (!workspaceId) return; // No workspace found — user needs setup
+
+    // 4. Subscribe to live updates (replaces one-time getDoc)
+    subscribeToWorkspace(workspaceId, uid);
+
+    // 5. Bootstrap owner member if empty (one-time fix for old accounts)
+    // We do this via a separate getDoc so we don't block the listener
+    const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
+    if (wsDoc.exists()) {
+      const wsData = wsDoc.data();
+      const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
+        ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
+        : [];
+
+      if (membersArr.length === 0) {
+        const ownerMember: WorkspaceMember = {
+          uid,
+          email: userDoc.data()?.email ?? u?.email ?? "",
+          displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
+          photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
+          role: "admin",
+          joinedAt: new Date().toISOString(),
+        };
+        await updateDoc(doc(db, "workspaces", workspaceId), {
+          members: [ownerMember],
+        });
+        // The onSnapshot listener above will pick up this change automatically
+      }
+    }
   };
 
+  // ─── Auth state listener ───────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
         await loadWorkspace(u.uid, u);
       } else {
+        // Logged out — clean up workspace listener and state
+        if (wsUnsubRef.current) {
+          wsUnsubRef.current();
+          wsUnsubRef.current = null;
+        }
         setWorkspace(null);
         setMembers([]);
         setMyRole(null);
@@ -173,26 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // Uses redirect (not popup) so it works on Vercel/COOP-restricted origins.
-  // After the redirect resolves, onAuthStateChanged fires with the user,
-  // which triggers loadWorkspace automatically. The function stores the
-  // pending invite (if any) in sessionStorage so InvitePage can pick it up
-  // after the page reloads.
-  const signInWithGoogle = async (
-    inviteToken?: string,
-    inviteRole?: string,
-  ): Promise<User | null> => {
-    if (inviteToken) {
-      sessionStorage.setItem("pendingInviteToken", inviteToken);
-      sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
-    }
-    await signInWithRedirect(auth, new GoogleAuthProvider());
-    // signInWithRedirect navigates away — code below never runs during the
-    // redirect itself. Return null as a type placeholder.
-    return null;
-  };
-
-  // Called once on mount to pick up the result of a Google redirect sign-in.
+  // ─── Handle Google redirect result ────────────────────────────────────────
   useEffect(() => {
     getRedirectResult(auth)
       .then(async (result) => {
@@ -207,18 +259,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           },
           { merge: true },
         );
-        // loadWorkspace will be called by onAuthStateChanged below
+        // onAuthStateChanged will fire and call loadWorkspace automatically
       })
       .catch(() => {
-        // No redirect result or error — normal page load, ignore
+        // No redirect result — normal page load
       });
   }, []);
 
+  // ─── Google sign-in (redirect flow) ───────────────────────────────────────
+  const signInWithGoogle = async (
+    inviteToken?: string,
+    inviteRole?: string,
+  ): Promise<User | null> => {
+    if (inviteToken) {
+      sessionStorage.setItem("pendingInviteToken", inviteToken);
+      sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
+    }
+    await signInWithRedirect(auth, new GoogleAuthProvider());
+    return null; // redirect navigates away, never reached
+  };
+
+  // ─── Email sign-in ────────────────────────────────────────────────────────
   const signInWithEmail = async (email: string, password: string) => {
     const result = await signInWithEmailAndPassword(auth, email, password);
     await loadWorkspace(result.user.uid, result.user);
   };
 
+  // ─── Email sign-up ────────────────────────────────────────────────────────
   const signUpWithEmail = async (
     email: string,
     password: string,
@@ -234,7 +301,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // ─── Logout ───────────────────────────────────────────────────────────────
   const logout = async () => {
+    if (wsUnsubRef.current) {
+      wsUnsubRef.current();
+      wsUnsubRef.current = null;
+    }
     await signOut(auth);
     setWorkspace(null);
     setMembers([]);
@@ -243,6 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 
+  // ─── Create workspace ─────────────────────────────────────────────────────
   const createWorkspace = async (name: string) => {
     if (!user) return;
     const inviteToken = generateToken();
@@ -267,29 +340,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       { workspaceId: wsRef.id },
       { merge: true },
     );
-    const ws: Workspace = {
-      id: wsRef.id,
-      name,
-      ownerId: user.uid,
-      inviteToken,
-      members: [ownerMember],
-      createdAt: null,
-    };
-    setWorkspace(ws);
-    setMembers([ownerMember]);
-    setMyRole("admin");
+    // Subscribe to the new workspace for live updates
+    subscribeToWorkspace(wsRef.id, user.uid);
   };
 
+  // ─── Generate new invite token ────────────────────────────────────────────
   const generateNewInviteToken = async (): Promise<string> => {
     if (!workspace) throw new Error("No workspace");
     const newToken = generateToken();
     await updateDoc(doc(db, "workspaces", workspace.id), {
       inviteToken: newToken,
     });
-    setWorkspace((w) => (w ? { ...w, inviteToken: newToken } : w));
+    // onSnapshot picks up the change — no need to manually update state
     return newToken;
   };
 
+  // ─── Join workspace by invite token ──────────────────────────────────────
   const joinWorkspaceByToken = async (
     token: string,
     invitedRole?: MemberRole,
@@ -316,7 +382,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         { workspaceId },
         { merge: true },
       );
-      await loadWorkspace(user.uid, user);
+      subscribeToWorkspace(workspaceId, user.uid);
       return { workspaceName: wsData.name, role: alreadyMember.role };
     }
 
@@ -334,10 +400,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       members: arrayUnion(newMember),
     });
     await setDoc(doc(db, "users", user.uid), { workspaceId }, { merge: true });
-    await loadWorkspace(user.uid, user);
+    subscribeToWorkspace(workspaceId, user.uid);
     return { workspaceName: wsData.name, role };
   };
 
+  // ─── Update member role ───────────────────────────────────────────────────
+  // Writes to Firestore — the onSnapshot listener updates all clients instantly
   const updateMemberRole = async (uid: string, role: MemberRole) => {
     if (!workspace) return;
     const updatedMembers = members.map((m) =>
@@ -346,17 +414,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: updatedMembers,
     });
-    setMembers(updatedMembers);
+    // No need to setMembers manually — onSnapshot handles it
   };
 
+  // ─── Remove member ────────────────────────────────────────────────────────
+  // Removes the member object from the array AND clears their workspaceId
+  // so they can't re-enter without a new invite.
   const removeMember = async (uid: string) => {
     if (!workspace) return;
     const member = members.find((m) => m.uid === uid);
     if (!member) return;
+
+    // 1. Remove from workspace members array
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: arrayRemove(member),
     });
-    setMembers((prev) => prev.filter((m) => m.uid !== uid));
+
+    // 2. Clear their workspaceId so RequireWorkspace boots them to /setup-workspace
+    //    This means they truly lose access — they can't even see the app shell
+    await setDoc(doc(db, "users", uid), { workspaceId: null }, { merge: true });
+
+    // onSnapshot handles local state update
   };
 
   return (
@@ -367,6 +445,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         members,
         myRole,
         loading,
+        wsLoading,
         signInWithGoogle,
         signInWithEmail,
         signUpWithEmail,

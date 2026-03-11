@@ -334,7 +334,7 @@ export default function SettingsPage() {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/login");
+    navigate("/logged-out");
   };
 
   return (

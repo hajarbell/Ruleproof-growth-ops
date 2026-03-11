@@ -12,6 +12,7 @@ import LoginPage from "./pages/auth/LoginPage";
 import SignupPage from "./pages/auth/SignupPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
 import WorkspaceSetupPage from "./pages/auth/WorkspaceSetupPage";
+import LoggedOutPage from "./pages/auth/LoggedOutPage";
 import InvitePage from "./pages/InvitePage";
 
 // App pages
@@ -36,17 +37,20 @@ export default function App() {
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            {/* Public auth routes */}
+            {/* Public auth routes — redirect to app if already logged in */}
             <Route element={<RedirectIfAuth />}>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             </Route>
 
-            {/* Invite page — public, handles auth inside */}
+            {/* Logged-out confirmation page — always public */}
+            <Route path="/logged-out" element={<LoggedOutPage />} />
+
+            {/* Invite page — public, handles its own auth flow */}
             <Route path="/invite/:token" element={<InvitePage />} />
 
-            {/* Workspace setup (logged in, no workspace) */}
+            {/* Workspace setup (logged in, but no workspace yet) */}
             <Route path="/setup-workspace" element={<WorkspaceSetupPage />} />
 
             {/* Protected app routes */}

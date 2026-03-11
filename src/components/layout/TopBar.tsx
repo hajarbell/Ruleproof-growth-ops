@@ -139,7 +139,7 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
 
   const handleLogout = async () => {
     await logout();
-    navigate("/login");
+    navigate("/logged-out");
   };
 
   const initials = user?.displayName
