@@ -182,14 +182,14 @@ const REACTION_ICONS = [
 
 // Unified electric-blue palette — cohesive but distinct
 const CHART_COLORS = [
-  "#38bdf8",
   "#818cf8",
-  "#6ee7b7",
+  "#c084fc",
+  "#60a5fa",
+  "#e879f9",
+  "#38bdf8",
   "#a78bfa",
   "#7dd3fc",
-  "#93c5fd",
-  "#c4b5fd",
-  "#5eead4",
+  "#f0abfc",
 ];
 const GEO_COLORS = CHART_COLORS;
 const JOB_COLORS = CHART_COLORS;
@@ -288,7 +288,7 @@ function ColorPicker({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex flex-wrap gap-2 items-center p-3 rounded-2xl bg-[#1a1a2e]/60 border border-white/8 backdrop-blur-sm">
+      <div className="flex flex-wrap gap-2 items-center p-3 rounded-2xl border border-border/50">
         {/* Clear */}
         <button
           onClick={() => onChange("")}
@@ -365,7 +365,7 @@ function ColorPicker({
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
-          className="rounded-2xl border border-white/10 bg-[#1a1a2e]/80 p-4 space-y-3 backdrop-blur-sm mt-1"
+          className="rounded-2xl border border-border/50 bg-muted/30 p-4 space-y-3 mt-1"
         >
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             Gradient Builder
@@ -544,7 +544,7 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
   ];
   return (
     <div
-      className="relative h-64 w-full rounded-xl overflow-hidden"
+      className="relative h-80 w-full rounded-xl overflow-hidden"
       style={{
         background:
           "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.3) 0%, transparent 80%)",
@@ -572,7 +572,7 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
         <rect width="100%" height="100%" fill="url(#geo-grid)" />
       </svg>
       {locations.map((loc, i) => {
-        const size = 52 + (loc.pct / maxPct) * 72;
+        const size = 56 + (loc.pct / maxPct) * 90;
         const pos = positions[i] ?? { left: "50%", top: "50%" };
         const color = GEO_COLORS[i % GEO_COLORS.length];
         const isHov = hoveredIdx === i;
@@ -831,7 +831,7 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
             <span
-              className="material-symbols-outlined text-[13px] leading-none"
+              className="material-symbols-outlined text-[11px] leading-none"
               style={{
                 fontVariationSettings:
                   "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
@@ -1162,15 +1162,10 @@ function ImpressionsLineChart({
           ))}
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={170}>
+      <ResponsiveContainer width="100%" height={190}>
         <LineChart
           data={filtered}
-          margin={{
-            top: 4,
-            right: showEngagement ? 8 : 4,
-            left: -24,
-            bottom: 0,
-          }}
+          margin={{ top: 6, right: 4, left: 4, bottom: 0 }}
         >
           <CartesianGrid
             strokeDasharray="3 3"
@@ -1179,12 +1174,13 @@ function ImpressionsLineChart({
           />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: "transparent" }}
+            tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground)/0.5)" }}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
             yAxisId="left"
+            width={0}
             tickFormatter={fmtNum}
             tick={{ fontSize: 10, fill: "transparent" }}
             tickLine={false}
@@ -1193,6 +1189,7 @@ function ImpressionsLineChart({
           {showEngagement && (
             <YAxis
               yAxisId="right"
+              width={0}
               orientation="right"
               tickFormatter={fmtNum}
               tick={{ fontSize: 10, fill: "transparent" }}
@@ -2875,12 +2872,12 @@ function AccountInsightsOverlay({
               const total = slices.reduce((s, i) => s + i.pct, 0) || 1;
               // Electric-blue adjacent shades — same hue family, distinct brightness
               const PIE_COLORS = [
-                "#38bdf8",
                 "#818cf8",
-                "#6ee7b7",
+                "#c084fc",
+                "#60a5fa",
+                "#e879f9",
+                "#38bdf8",
                 "#a78bfa",
-                "#7dd3fc",
-                "#c4b5fd",
               ];
               return (
                 <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
@@ -2970,7 +2967,7 @@ function AccountInsightsOverlay({
               );
             })()}
 
-            {/* Seniority — bubble style like geo */}
+            {/* Seniority — waterfall bar chart, sorted descending */}
             {(() => {
               const allSen: Array<{ name: string; pct: number }> = [];
               (account.posts ?? []).forEach((p) =>
@@ -2981,21 +2978,22 @@ function AccountInsightsOverlay({
                 }),
               );
               if (!allSen.length) return null;
+              // Sort descending — waterfall drops level by level
               const sorted = [...allSen]
                 .sort((a, b) => b.pct - a.pct)
                 .slice(0, 6);
               const maxP = sorted[0].pct;
-              const positions = [
-                { left: "50%", top: "50%" },
-                { left: "20%", top: "35%" },
-                { left: "78%", top: "30%" },
-                { left: "24%", top: "72%" },
-                { left: "76%", top: "70%" },
-                { left: "52%", top: "14%" },
+              const SEN_COLORS = [
+                "#818cf8",
+                "#c084fc",
+                "#60a5fa",
+                "#e879f9",
+                "#38bdf8",
+                "#a78bfa",
               ];
               return (
                 <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
-                  <div className="flex items-center gap-2 mb-3">
+                  <div className="flex items-center gap-2 mb-4">
                     <div className="w-7 h-7 rounded-xl bg-violet-500/15 flex items-center justify-center">
                       <Users className="w-3.5 h-3.5 text-violet-400" />
                     </div>
@@ -3004,88 +3002,62 @@ function AccountInsightsOverlay({
                         Seniority
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Career level of your audience · hover for details
+                        Career level of your audience
                       </p>
                     </div>
                   </div>
-                  <div
-                    className="relative h-48 w-full rounded-xl overflow-hidden"
-                    style={{
-                      background:
-                        "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.25) 0%, transparent 80%)",
-                    }}
-                  >
-                    <svg
-                      className="absolute inset-0 w-full h-full opacity-[0.06]"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <defs>
-                        <pattern
-                          id="sen-grid"
-                          width="24"
-                          height="24"
-                          patternUnits="userSpaceOnUse"
-                        >
-                          <path
-                            d="M 24 0 L 0 0 0 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="0.5"
-                          />
-                        </pattern>
-                      </defs>
-                      <rect width="100%" height="100%" fill="url(#sen-grid)" />
-                    </svg>
+                  {/* Waterfall: each bar starts from the right edge of the previous — stepped down */}
+                  <div className="space-y-2">
                     {sorted.map((s, i) => {
-                      const size = 48 + (s.pct / maxP) * 60;
-                      const pos = positions[i] ?? { left: "50%", top: "50%" };
-                      const color = CHART_COLORS[(i + 1) % CHART_COLORS.length];
+                      const color = SEN_COLORS[i % SEN_COLORS.length];
+                      // Waterfall width: bar fills from left, shrinks each row
+                      const barW = (s.pct / maxP) * 100;
+                      // Left offset increases by a step per level = waterfall cascade
+                      const leftOffset = i * 4;
+                      const availableW = 100 - leftOffset;
+                      const finalW = (barW / 100) * availableW;
                       return (
-                        <motion.div
+                        <div
                           key={s.name}
-                          initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          transition={{
-                            delay: i * 0.08,
-                            type: "spring",
-                            stiffness: 200,
-                            damping: 14,
-                          }}
-                          whileHover={{ scale: 1.1, zIndex: 20 }}
-                          className="absolute flex flex-col items-center justify-center group cursor-default"
-                          style={{
-                            left: pos.left,
-                            top: pos.top,
-                            transform: "translate(-50%,-50%)",
-                            width: size,
-                            height: size,
-                            borderRadius: "50%",
-                            background: `radial-gradient(circle at 36% 36%, ${color}50, ${color}18)`,
-                            border: `1.5px solid ${color}60`,
-                            boxShadow: `0 0 ${size * 0.35}px ${color}25`,
-                          }}
+                          className="group cursor-default"
+                          style={{ paddingLeft: `${leftOffset}%` }}
                         >
-                          <span
-                            className="text-[11px] font-bold leading-none drop-shadow-sm"
-                            style={{ color }}
-                          >
-                            {s.pct}%
-                          </span>
-                          <span
-                            className="text-[8px] text-center px-1 leading-tight mt-0.5"
-                            style={{ color: color + "cc" }}
-                          >
-                            {s.name}
-                          </span>
-                          <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-30 shadow-lg">
-                            <span className="font-semibold" style={{ color }}>
+                          <div className="flex items-center justify-between mb-0.5 pr-1">
+                            <span
+                              className="text-[10px] font-semibold"
+                              style={{ color }}
+                            >
                               {s.name}
                             </span>
-                            <span className="text-muted-foreground ml-1">
-                              {s.pct}% of audience
+                            <span
+                              className="text-[10px] font-bold"
+                              style={{ color }}
+                            >
+                              {s.pct}%
                             </span>
                           </div>
-                        </motion.div>
+                          <div
+                            className="h-5 rounded-full overflow-hidden"
+                            style={{ background: color + "15" }}
+                          >
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${finalW}%` }}
+                              transition={{
+                                delay: i * 0.08,
+                                duration: 0.6,
+                                ease: "easeOut",
+                              }}
+                              className="h-full rounded-full relative overflow-hidden group-hover:brightness-110 transition-all"
+                              style={{
+                                background: `linear-gradient(90deg, ${color}f0, ${color}70)`,
+                                boxShadow: `0 0 8px ${color}40`,
+                              }}
+                            >
+                              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12" />
+                            </motion.div>
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
