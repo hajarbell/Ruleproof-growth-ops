@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Palette,
@@ -17,10 +17,24 @@ import {
   User as UserIcon,
   Link2,
   X,
+  CheckCheck,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth, MemberRole } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  writeBatch,
+  doc,
+  deleteDoc,
+  getDocs,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import type { AppNotification } from "@/components/layout/TopBar";
 
 function Avatar({ name, photo }: { name: string; photo?: string }) {
   const ini = (name || "?")
@@ -87,6 +101,172 @@ function RolePill({ role }: { role: MemberRole }) {
       <r.icon className="w-2.5 h-2.5" />
       {r.label}
     </span>
+  );
+}
+
+// ─── Helpers (mirrored from TopBar) ──────────────────────────────────────────
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+function typeDot(type: AppNotification["type"]) {
+  switch (type) {
+    case "member_joined":
+      return "bg-violet-400";
+    case "account_connected":
+      return "bg-sky-400";
+    case "post_imported":
+      return "bg-indigo-400";
+    case "weekly_digest":
+      return "bg-fuchsia-400";
+  }
+}
+function typeLabel(type: AppNotification["type"]) {
+  switch (type) {
+    case "member_joined":
+      return "Team";
+    case "account_connected":
+      return "LinkedIn";
+    case "post_imported":
+      return "Content";
+    case "weekly_digest":
+      return "Digest";
+  }
+}
+
+// ─── Notifications Panel ──────────────────────────────────────────────────────
+function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!workspaceId) return;
+    const q = query(
+      collection(db, "workspaces", workspaceId, "notifications"),
+      orderBy("createdAt", "desc"),
+    );
+    return onSnapshot(q, (snap) => {
+      setNotifications(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AppNotification),
+      );
+      setLoading(false);
+    });
+  }, [workspaceId]);
+
+  const unread = notifications.filter((n) => !n.read).length;
+
+  const markAllRead = async () => {
+    const list = notifications.filter((n) => !n.read);
+    if (!list.length) return;
+    const batch = writeBatch(db);
+    list.forEach((n) =>
+      batch.update(doc(db, "workspaces", workspaceId, "notifications", n.id), {
+        read: true,
+      }),
+    );
+    await batch.commit();
+  };
+
+  const clearAll = async () => {
+    const snap = await getDocs(
+      collection(db, "workspaces", workspaceId, "notifications"),
+    );
+    const batch = writeBatch(db);
+    snap.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 }}
+      className="glass rounded-xl shadow-soft overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-muted">
+            <Bell className="w-5 h-5 text-muted-foreground" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-foreground">Notifications</h3>
+            <p className="text-xs text-muted-foreground">
+              {unread > 0 ? `${unread} unread` : "All caught up"}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {unread > 0 && (
+            <button
+              onClick={markAllRead}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-muted"
+            >
+              <CheckCheck className="w-3.5 h-3.5" /> Mark all read
+            </button>
+          )}
+          {notifications.length > 0 && (
+            <button
+              onClick={clearAll}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-muted"
+            >
+              <Trash2 className="w-3.5 h-3.5" /> Clear all
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : notifications.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-2">
+          <Bell className="w-7 h-7 text-muted-foreground/20" />
+          <p className="text-sm text-muted-foreground">No notifications yet</p>
+          <p className="text-xs text-muted-foreground/60">
+            Activity from your team will appear here
+          </p>
+        </div>
+      ) : (
+        <div>
+          {notifications.map((n, idx) => (
+            <div
+              key={n.id}
+              className={`flex items-start gap-3 px-5 py-3.5 border-b border-border/40 last:border-0 transition-colors ${!n.read ? "bg-muted/15" : ""}`}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${typeDot(n.type)} ${n.read ? "opacity-25" : ""}`}
+              />
+              <div className="flex-1 min-w-0">
+                <p
+                  className={`text-sm leading-snug ${n.read ? "text-muted-foreground" : "text-foreground"}`}
+                >
+                  {n.message}
+                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px] text-muted-foreground/60 uppercase tracking-wide font-semibold">
+                    {typeLabel(n.type)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/50">
+                    {timeAgo(n.createdAt)}
+                  </span>
+                </div>
+              </div>
+              {!n.read && (
+                <div className="w-1.5 h-1.5 rounded-full bg-violet-500 mt-1.5 flex-shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
   );
 }
 
@@ -491,36 +671,32 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {[
-        {
-          title: "Notifications",
-          description: "Email and in-app notification preferences",
-          icon: Bell,
-        },
-        {
-          title: "Data & Integrations",
-          description: "Connected accounts, API keys, exports",
-          icon: Database,
-        },
-      ].map((s, i) => (
-        <motion.div
-          key={s.title}
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 + i * 0.04 }}
-          className="glass rounded-xl p-5 shadow-soft hover:border-primary/30 transition-colors cursor-pointer"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-muted">
-              <s.icon className="w-5 h-5 text-muted-foreground" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-foreground">{s.title}</h3>
-              <p className="text-xs text-muted-foreground">{s.description}</p>
-            </div>
+      {/* Notifications panel — admin only */}
+      {myRole === "admin" && (
+        <NotificationsPanel workspaceId={workspace?.id ?? ""} />
+      )}
+
+      {/* Data & Integrations placeholder */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.14 }}
+        className="glass rounded-xl p-5 shadow-soft hover:border-primary/30 transition-colors cursor-pointer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-lg bg-muted">
+            <Database className="w-5 h-5 text-muted-foreground" />
           </div>
-        </motion.div>
-      ))}
+          <div>
+            <h3 className="font-semibold text-foreground">
+              Data &amp; Integrations
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Connected accounts, API keys, exports
+            </p>
+          </div>
+        </div>
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 12 }}

@@ -58,6 +58,27 @@ export default function InvitePage() {
       const result = await joinWorkspaceByToken(token, role);
       setWorkspaceName(result.workspaceName);
       setStatus("success");
+
+      // Notify admins — write to the workspace's notifications subcollection
+      try {
+        const q = query(
+          collection(db, "workspaces"),
+          where("inviteToken", "==", token),
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          const wsId = snap.docs[0].id;
+          const name = user?.displayName || user?.email || "Someone";
+          await addDoc(collection(db, "workspaces", wsId, "notifications"), {
+            type: "member_joined",
+            message: `${name} joined the workspace as ${result.role}.`,
+            actorName: name,
+            read: false,
+            createdAt: new Date().toISOString(),
+          });
+        }
+      } catch (_) {}
+
       setTimeout(() => navigate("/"), 2000);
     } catch (err: any) {
       setErrorMsg(err.message || "Invalid invite link.");
@@ -176,13 +197,14 @@ export default function InvitePage() {
                 <CheckCircle className="w-7 h-7 text-emerald-500" />
               </div>
               <h2 className="text-xl font-bold text-foreground mb-2">
-                You're in! 🎉
+                Welcome to your dashboard
               </h2>
               <p className="text-muted-foreground text-sm mb-1">
-                Welcome to <strong>{workspaceName}</strong>
+                You joined <strong>{workspaceName}</strong> as{" "}
+                <strong>{roleInfo.label}</strong>.
               </p>
-              <p className="text-xs text-muted-foreground">
-                Redirecting you now...
+              <p className="text-xs text-muted-foreground opacity-70">
+                Taking you there now...
               </p>
             </div>
           )}
