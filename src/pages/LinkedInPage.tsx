@@ -259,30 +259,15 @@ function ColorPicker({
         >
           <X className="w-3 h-3 text-muted-foreground" />
         </button>
-        {/* Solid colors — each with 3 shades */}
-        {AVATAR_COLORS.map((c) => {
-          const p1 = c + "88";
-          const p2 = c + "44";
-          return (
-            <div key={c} className="flex flex-col items-center gap-1.5">
-              <button
-                onClick={() => onChange(c)}
-                style={{ background: c }}
-                className={`w-8 h-8 rounded-full transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
-              />
-              <button
-                onClick={() => onChange(p1)}
-                style={{ background: p1, border: `2px solid ${c}55` }}
-                className={`w-5 h-5 rounded-full transition-all ${value === p1 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-80 hover:opacity-100"}`}
-              />
-              <button
-                onClick={() => onChange(p2)}
-                style={{ background: p2, border: `2px solid ${c}33` }}
-                className={`w-4 h-4 rounded-full transition-all ${value === p2 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-70 hover:opacity-100"}`}
-              />
-            </div>
-          );
-        })}
+        {/* Solid colors only */}
+        {AVATAR_COLORS.map((c) => (
+          <button
+            key={c}
+            onClick={() => onChange(c)}
+            style={{ background: c }}
+            className={`w-8 h-8 rounded-full transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
+          />
+        ))}
         {/* Gradient preset circles */}
         {GRADIENT_PRESETS.map((g) => (
           <div key={g.id} className="flex flex-col items-center gap-1.5">
@@ -1178,6 +1163,7 @@ function AddPostModal({
         const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
         const posts: LinkedInPost[] = [];
         let i = 0;
+
         while (i < rows.length) {
           const row = rows[i];
           if (!row || !row[0]) {
@@ -1185,125 +1171,145 @@ function AddPostModal({
             continue;
           }
           const key = String(row[0]).trim();
+
           if (key === "Post URL") {
-            const postUrl = String(row[1] || "").trim();
+            // collect all data for this post block
+            const postUrl = String(
+              row[1] || (row[0] === "Post URL" && rows[i]?.[1]) || "",
+            ).trim();
             let impressions = 0,
               membersReached = 0,
-              reactions = 0,
-              comments = 0,
+              profileViewers = 0,
+              reactions = 0;
+            let comments = 0,
               reposts = 0,
               saves = 0,
-              followersGained = 0;
+              followersGained = 0,
+              sends = 0;
             let postDate = "",
               publishTime = "";
             const topLocations: Array<{ name: string; pct: number }> = [];
             const topJobFunctions: Array<{ name: string; pct: number }> = [];
+
+            // Track which section we're in for audience highlights
+            let currentSection:
+              | "none"
+              | "reactions_highlights"
+              | "comments_highlights" = "none";
+            let inLocationBlock = false;
+            let inJobBlock = false;
+
             let j = i + 1;
-            while (j < rows.length && j < i + 60) {
+            while (j < rows.length) {
               const k = String(rows[j]?.[0] || "").trim();
-              const rawVal = String(rows[j]?.[1] || "").trim();
-              const v = parseInt(rawVal.replace(/,/g, "")) || 0;
-              if (k === "Post Date") postDate = rawVal;
-              else if (k === "Publish time" || k === "Post Publish Time")
-                publishTime = rawVal;
-              else if (k === "Impressions") impressions = v;
-              else if (k === "Members reached") membersReached = v;
-              else if (k === "Reactions") reactions = v;
-              else if (k === "Comments") comments = v;
-              else if (k === "Reposts") reposts = v;
-              else if (k === "Saves") saves = v;
-              else if (k === "Followers gained from this post")
-                followersGained = v;
-              else if (
-                k === "Top location" ||
-                (k === "Top job title" &&
-                  rows[j - 1] &&
-                  String(rows[j - 1]?.[0]).includes("location"))
+              const col1 = String(rows[j]?.[1] || "").trim();
+              const col2 = String(rows[j]?.[2] || "").trim();
+              const numVal = parseInt(col1.replace(/,/g, "")) || 0;
+
+              // Stop when we hit next post
+              if (k === "Post URL" && j !== i) break;
+
+              // Core metrics
+              if (k === "Post Date") {
+                postDate = col1;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Publish time" || k === "Post Publish Time") {
+                publishTime = col1;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Impressions") {
+                impressions = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Members reached") {
+                membersReached = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Profile viewers from this post") {
+                profileViewers = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Followers gained from this post") {
+                followersGained = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Reactions") {
+                reactions = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Comments") {
+                comments = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Reposts") {
+                reposts = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Saves") {
+                saves = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              } else if (k === "Sends on LinkedIn") {
+                sends = numVal;
+                inLocationBlock = false;
+                inJobBlock = false;
+              }
+
+              // Section headers
+              else if (k.includes("Highlights") || k === "Post Performance") {
+                currentSection = k.toLowerCase().includes("comment")
+                  ? "comments_highlights"
+                  : "reactions_highlights";
+                inLocationBlock = false;
+                inJobBlock = false;
+              }
+
+              // Audience sub-sections — set context flags
+              else if (k === "Top location") {
+                inLocationBlock = true;
+                inJobBlock = false;
+              } else if (
+                k === "Top job title" ||
+                k === "Top job function" ||
+                k === "Top industry"
               ) {
-                // location rows: next rows after "Top location" header are actual locations
-              } else if (k === "Top industry" || k === "Top job function") {
-                // skip headers
-              } else {
-                // detect if this is audience highlight data
-                // LinkedIn exports have rows like: "Lagos" with a percentage in col[2]
-                const col2 = String(rows[j]?.[2] || "").trim();
-                const pct2 = parseInt(col2.replace(/[^0-9]/g, "")) || 0;
-                // check if previous meaningful row was a location/function header
-                if (rawVal && pct2 > 0) {
-                  // scan back to find context
-                  for (let back = j - 1; back >= Math.max(j - 5, i); back--) {
-                    const bk = String(rows[back]?.[0] || "")
-                      .trim()
-                      .toLowerCase();
-                    if (bk.includes("location")) {
-                      topLocations.push({ name: rawVal, pct: pct2 });
-                      break;
-                    }
-                    if (
-                      bk.includes("job") ||
-                      bk.includes("industry") ||
-                      bk.includes("function")
-                    ) {
-                      topJobFunctions.push({ name: rawVal, pct: pct2 });
-                      break;
-                    }
-                  }
+                inJobBlock = true;
+                inLocationBlock = false;
+              }
+
+              // Data rows after location/job headers: col[0] has the value, col[1] might have count
+              else if (inLocationBlock && k && !k.includes("Top")) {
+                // k is the location name, col1 might be count or empty
+                if (k && !topLocations.find((l) => l.name === k)) {
+                  // Use a placeholder pct — we rank by order (first = most common)
+                  const rank = topLocations.length;
+                  topLocations.push({
+                    name: k,
+                    pct: Math.max(50 - rank * 12, 5),
+                  });
+                }
+              } else if (inJobBlock && k && !k.includes("Top")) {
+                if (k && !topJobFunctions.find((f) => f.name === k)) {
+                  const rank = topJobFunctions.length;
+                  topJobFunctions.push({
+                    name: k,
+                    pct: Math.max(50 - rank * 12, 5),
+                  });
                 }
               }
-              if (k === "Post URL" && j !== i) break;
+
               j++;
             }
-            // Fallback: also scan for "Top location" headers followed by data
-            for (let scan = i + 1; scan < Math.min(j, rows.length); scan++) {
-              const scanKey = String(rows[scan]?.[0] || "").trim();
-              if (scanKey === "Top location") {
-                for (
-                  let d2 = scan + 1;
-                  d2 < scan + 6 && d2 < rows.length;
-                  d2++
-                ) {
-                  const locName = String(rows[d2]?.[1] || "").trim();
-                  const locPct =
-                    parseInt(
-                      String(rows[d2]?.[2] || "0").replace(/[^0-9]/g, ""),
-                    ) || 0;
-                  if (
-                    locName &&
-                    locPct > 0 &&
-                    !topLocations.find((l) => l.name === locName)
-                  )
-                    topLocations.push({ name: locName, pct: locPct });
-                }
-              }
-              if (
-                scanKey === "Top job function" ||
-                scanKey === "Top industry"
-              ) {
-                for (
-                  let d2 = scan + 1;
-                  d2 < scan + 6 && d2 < rows.length;
-                  d2++
-                ) {
-                  const fnName = String(rows[d2]?.[1] || "").trim();
-                  const fnPct =
-                    parseInt(
-                      String(rows[d2]?.[2] || "0").replace(/[^0-9]/g, ""),
-                    ) || 0;
-                  if (
-                    fnName &&
-                    fnPct > 0 &&
-                    !topJobFunctions.find((f) => f.name === fnName)
-                  )
-                    topJobFunctions.push({ name: fnName, pct: fnPct });
-                }
-              }
-            }
+
+            // Parse date
             let formattedDate = new Date().toISOString().split("T")[0];
             try {
               const d = new Date(postDate);
               if (!isNaN(d.getTime()))
                 formattedDate = d.toISOString().split("T")[0];
             } catch {}
+
             const pid = `post_${Date.now()}_${posts.length}`;
             posts.push({
               id: pid,
@@ -1331,6 +1337,7 @@ function AddPostModal({
             i++;
           }
         }
+
         if (posts.length === 0)
           setImportError(
             "No posts found. Make sure this is a LinkedIn analytics export.",
@@ -1343,7 +1350,7 @@ function AddPostModal({
           });
           setImportTitles(titles);
         }
-      } catch {
+      } catch (err) {
         setImportError(
           "Failed to read file. Make sure it's a valid LinkedIn Excel export (.xlsx).",
         );
@@ -1636,10 +1643,10 @@ function AddPostModal({
                           </a>
                         </div>
                       )}
-                      {/* BIG title input */}
-                      <div className="px-3 pb-4 pt-1">
-                        <label className="text-[10px] font-semibold text-primary/70 uppercase tracking-wider mb-2 block flex items-center gap-1">
-                          ✏️ Name this post
+                      {/* Title input */}
+                      <div className="px-3 pb-3 pt-1">
+                        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                          Post Name / Topic
                         </label>
                         <input
                           value={importTitles[p.id] ?? ""}
@@ -1650,7 +1657,7 @@ function AddPostModal({
                             }))
                           }
                           placeholder="e.g. 5 AI Trends for Insurance Brokers"
-                          className="w-full px-4 py-3.5 rounded-xl bg-card border-2 border-primary/30 text-lg text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/60 font-semibold transition-all"
+                          className="w-full px-3 py-2.5 rounded-xl bg-card border border-primary/20 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
                         />
                       </div>
                     </div>
@@ -2052,13 +2059,140 @@ function PostDetailCard({
   );
 }
 
+// ─── Account Insights Overlay ─────────────────────────────────────────────────
+function AccountInsightsOverlay({
+  account,
+  onClose,
+}: {
+  account: LinkedInAccount;
+  onClose: () => void;
+}) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+        onClick={onClose}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.88, y: 24 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.92, y: 16 }}
+          transition={{ type: "spring", stiffness: 260, damping: 22 }}
+          onClick={(e) => e.stopPropagation()}
+          className="bg-card border border-border rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden"
+        >
+          {/* Top bar */}
+          <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex items-center gap-3">
+              {account.avatarUrl ? (
+                <img
+                  src={account.avatarUrl}
+                  className="w-10 h-10 rounded-xl object-cover"
+                  alt=""
+                />
+              ) : (
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm"
+                  style={{ background: getAvatarBg(account.avatarColor) }}
+                >
+                  {account.avatarInitials}
+                </div>
+              )}
+              <div>
+                <p className="font-bold text-sm text-foreground">
+                  {account.name}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  Audience Insights
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl hover:bg-muted text-muted-foreground transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+            {/* Geography */}
+            <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-xl bg-indigo-500/15 flex items-center justify-center">
+                  <MapPin className="w-3.5 h-3.5 text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-foreground">Geography</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Where your audience is from
+                  </p>
+                </div>
+              </div>
+              <GeoBubbles posts={account.posts ?? []} />
+            </div>
+
+            {/* Job Functions */}
+            <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-xl bg-purple-500/15 flex items-center justify-center">
+                  <Briefcase className="w-3.5 h-3.5 text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-foreground">
+                    Job Functions
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Who's engaging with your content
+                  </p>
+                </div>
+              </div>
+              <JobFunctionBars posts={account.posts ?? []} />
+            </div>
+
+            {/* Post timing — as avg card not dashboard */}
+            <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-7 h-7 rounded-xl bg-amber-500/15 flex items-center justify-center">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-foreground">
+                    Best Posting Days
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">
+                    Based on your post history
+                  </p>
+                </div>
+              </div>
+              <PostTimingDisplay posts={account.posts ?? []} />
+            </div>
+          </div>
+
+          <div className="px-5 py-3 border-t border-border text-center">
+            <p className="text-[10px] text-muted-foreground/50">
+              double-tap the card again to close
+            </p>
+          </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
 // ─── Account Card ─────────────────────────────────────────────────────────────
 function AccountCard({
   account,
   onEdit,
   onDelete,
   isSelected,
-  isExpanded,
   onSelect,
   onExpand,
   index,
@@ -2067,7 +2201,6 @@ function AccountCard({
   onEdit: () => void;
   onDelete: () => void;
   isSelected: boolean;
-  isExpanded: boolean;
   onSelect: () => void;
   onExpand: () => void;
   index: number;
@@ -2274,69 +2407,9 @@ function AccountCard({
         )}
 
         {/* Double-tap hint */}
-        {!isExpanded && (
-          <p className="text-[9px] text-muted-foreground/40 text-center mt-3">
-            double-tap to expand insights
-          </p>
-        )}
-
-        {/* ── Expanded section (double-tap) ── */}
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.35, ease: "easeInOut" }}
-              className="overflow-hidden"
-            >
-              <div className="mt-4 pt-4 border-t border-border/40 space-y-5">
-                {/* Geography */}
-                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-lg bg-indigo-500/15 flex items-center justify-center">
-                      <MapPin className="w-3.5 h-3.5 text-indigo-400" />
-                    </div>
-                    <p className="text-xs font-bold text-foreground">
-                      Geography Distribution
-                    </p>
-                  </div>
-                  <GeoBubbles posts={account.posts ?? []} />
-                </div>
-
-                {/* Job Functions */}
-                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-lg bg-purple-500/15 flex items-center justify-center">
-                      <Briefcase className="w-3.5 h-3.5 text-purple-400" />
-                    </div>
-                    <p className="text-xs font-bold text-foreground">
-                      Audience by Job Function
-                    </p>
-                  </div>
-                  <JobFunctionBars posts={account.posts ?? []} />
-                </div>
-
-                {/* Post timing */}
-                <div className="rounded-2xl bg-background/40 border border-border/60 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-6 h-6 rounded-lg bg-amber-500/15 flex items-center justify-center">
-                      <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    </div>
-                    <p className="text-xs font-bold text-foreground">
-                      Best Posting Days
-                    </p>
-                  </div>
-                  <PostTimingDisplay posts={account.posts ?? []} />
-                </div>
-
-                <p className="text-[9px] text-muted-foreground/40 text-center">
-                  double-tap to collapse
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <p className="text-[9px] text-muted-foreground/35 text-center mt-3">
+          double-tap for insights
+        </p>
       </div>
     </motion.div>
   );
@@ -3101,7 +3174,6 @@ export default function LinkedInPage() {
               account={account}
               index={i}
               isSelected={selectedAccountId === account.id}
-              isExpanded={expandedAccountId === account.id}
               onSelect={() =>
                 setSelectedAccountId(
                   selectedAccountId === account.id ? null : account.id,
@@ -3118,6 +3190,18 @@ export default function LinkedInPage() {
           ))}
         </div>
       )}
+
+      {/* Insights overlay (double-tap) */}
+      {expandedAccountId &&
+        (() => {
+          const acc = accounts.find((a) => a.id === expandedAccountId);
+          return acc ? (
+            <AccountInsightsOverlay
+              account={acc}
+              onClose={() => setExpandedAccountId(null)}
+            />
+          ) : null;
+        })()}
 
       {/* Chart + table */}
       {!loading && selectedAccount && (
