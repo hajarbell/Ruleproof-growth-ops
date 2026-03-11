@@ -58,7 +58,7 @@ interface AuthContextType {
   members: WorkspaceMember[];
   myRole: MemberRole | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<User | null>; // ← returns User so InvitePage can pass it directly
   signInWithEmail: (email: string, password: string) => Promise<void>;
   signUpWithEmail: (
     email: string,
@@ -127,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const wsData = wsDoc.data();
     const ws: Workspace = { id: wsDoc.id, ...wsData } as Workspace;
 
-    // 3. Parse members array (Firestore stores as array of objects)
+    // 3. Parse members array
     let membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
       ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
       : [];
@@ -150,7 +150,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setWorkspace(ws);
     setMembers(membersArr);
-    // Owner is always admin regardless of what's stored
     const me = membersArr.find((m) => m.uid === uid);
     setMyRole(ws.ownerId === uid ? "admin" : (me?.role ?? "guest"));
   };
@@ -170,7 +169,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  const signInWithGoogle = async () => {
+  // ── Returns the Firebase User so InvitePage can pass it directly to doJoin
+  // without relying on stale React state
+  const signInWithGoogle = async (): Promise<User | null> => {
     const result = await signInWithPopup(auth, new GoogleAuthProvider());
     await setDoc(
       doc(db, "users", result.user.uid),
@@ -182,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       { merge: true },
     );
     await loadWorkspace(result.user.uid, result.user);
+    return result.user;
   };
 
   const signInWithEmail = async (email: string, password: string) => {
