@@ -44,6 +44,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from "recharts";
 import {
   collection,
@@ -285,7 +288,7 @@ function ColorPicker({
 
   return (
     <div className="space-y-2.5">
-      <div className="flex flex-wrap gap-2 items-center p-2.5 rounded-xl bg-[#1a1a2e]/60 border border-white/8 backdrop-blur-sm">
+      <div className="flex flex-wrap gap-2 items-center p-3 rounded-2xl bg-[#1a1a2e]/60 border border-white/8 backdrop-blur-sm">
         {/* Clear */}
         <button
           onClick={() => onChange("")}
@@ -359,10 +362,10 @@ function ColorPicker({
       {/* Gradient builder panel */}
       {showGradientBuilder && (
         <motion.div
-          initial={{ opacity: 0, y: -4 }}
+          initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0 }}
-          className="rounded-xl border border-white/10 bg-[#1a1a2e]/80 p-3 space-y-3 backdrop-blur-sm"
+          className="rounded-2xl border border-white/10 bg-[#1a1a2e]/80 p-4 space-y-3 backdrop-blur-sm mt-1"
         >
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
             Gradient Builder
@@ -541,7 +544,7 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
   ];
   return (
     <div
-      className="relative h-52 w-full rounded-xl overflow-hidden"
+      className="relative h-64 w-full rounded-xl overflow-hidden"
       style={{
         background:
           "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.3) 0%, transparent 80%)",
@@ -819,35 +822,87 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
 
   return (
     <div className="space-y-3">
-      {/* Tab switcher */}
+      {/* Tab switcher — Material Symbols icons, no emoji */}
       <div className="flex gap-1 p-1 rounded-lg bg-muted/30 w-fit">
         {(["hour", "day"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-semibold transition-all ${tab === t ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
           >
-            {t === "hour" ? "⏰ Best Hour" : "📅 Best Day"}
+            <span
+              className="material-symbols-outlined text-[13px] leading-none"
+              style={{
+                fontVariationSettings:
+                  "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+              }}
+            >
+              {t === "hour" ? "alarm" : "calendar_today"}
+            </span>
+            {t === "hour" ? "Best Hour" : "Best Day"}
           </button>
         ))}
       </div>
 
       {tab === "hour" && hasTiming && (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
+          {/* Best hour as a highlighted card */}
+          {hourData[bestHourIdx] && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border"
+              style={{ background: TEAL + "0f", borderColor: TEAL + "30" }}
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: TEAL + "20" }}
+              >
+                <span
+                  className="material-symbols-outlined text-[18px]"
+                  style={{
+                    color: TEAL,
+                    fontVariationSettings:
+                      "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                  }}
+                >
+                  alarm
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">
+                  Best posting hour
+                </p>
+                <p
+                  className="text-lg font-bold leading-tight"
+                  style={{ color: TEAL }}
+                >
+                  {fmt12(hourData[bestHourIdx].hour)}
+                </p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-[10px] text-muted-foreground">
+                  avg engagement
+                </p>
+                <p className="text-base font-bold" style={{ color: TEAL }}>
+                  {fmtNum(hourData[bestHourIdx].avg)}
+                </p>
+              </div>
+            </motion.div>
+          )}
+          {/* All hours bar chart */}
           <div
-            className="flex items-end gap-1.5 h-24"
+            className="flex items-end gap-1 h-20"
             style={{ scrollbarWidth: "none" }}
           >
             {hourData.map((h, i) => {
               const heightPct = Math.max((h.avg / maxHour) * 100, 4);
               const isBest = i === bestHourIdx;
-              const color = isBest ? TEAL : VIOLET + "80";
               return (
                 <div
                   key={h.hour}
-                  className="flex flex-col items-center gap-1 flex-1 min-w-[28px] group relative"
+                  className="flex flex-col items-center gap-0.5 flex-1 min-w-[22px] group relative"
                 >
-                  {/* tooltip on hover */}
                   <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
                     <p className="font-bold" style={{ color: TEAL }}>
                       {fmt12(h.hour)}
@@ -865,22 +920,20 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
                         duration: 0.5,
                         ease: "easeOut",
                       }}
-                      className="w-full rounded-t-md min-h-[3px] relative overflow-hidden"
+                      className="w-full rounded-t-sm min-h-[3px]"
                       style={{
                         background: isBest
                           ? `linear-gradient(to top, ${TEAL}, ${TEAL}88)`
-                          : `hsl(var(--muted)/0.4)`,
-                        boxShadow: isBest ? `0 0 8px ${TEAL}50` : "none",
+                          : TEAL + "28",
+                        boxShadow: isBest ? `0 0 6px ${TEAL}50` : "none",
                       }}
-                    >
-                      {isBest && (
-                        <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/30" />
-                      )}
-                    </motion.div>
+                    />
                   </div>
                   <span
-                    className={`text-[8px] ${isBest ? "font-bold" : "text-muted-foreground/60"}`}
-                    style={isBest ? { color: TEAL } : {}}
+                    className="text-[7px]"
+                    style={{
+                      color: isBest ? TEAL : "hsl(var(--muted-foreground)/0.4)",
+                    }}
                   >
                     {fmt12(h.hour)}
                   </span>
@@ -888,23 +941,63 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
               );
             })}
           </div>
-          <p className="text-[10px] text-center" style={{ color: TEAL }}>
-            Best: <strong>{fmt12(hourData[bestHourIdx]?.hour)}</strong> · avg{" "}
-            {fmtNum(hourData[bestHourIdx]?.avg)} engagement
-          </p>
         </div>
       )}
 
       {tab === "day" && hasDays && (
-        <div className="space-y-2">
-          <div className="flex items-end gap-1.5 h-24">
+        <div className="space-y-2.5">
+          {/* Best day card */}
+          {dayData[bestDayIdx]?.count > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl border"
+              style={{ background: VIOLET + "0f", borderColor: VIOLET + "30" }}
+            >
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: VIOLET + "20" }}
+              >
+                <span
+                  className="material-symbols-outlined text-[18px]"
+                  style={{
+                    color: VIOLET,
+                    fontVariationSettings:
+                      "'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20",
+                  }}
+                >
+                  calendar_today
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">
+                  Best posting day
+                </p>
+                <p
+                  className="text-lg font-bold leading-tight"
+                  style={{ color: VIOLET }}
+                >
+                  {dayData[bestDayIdx].name}
+                </p>
+              </div>
+              <div className="ml-auto text-right">
+                <p className="text-[10px] text-muted-foreground">
+                  avg engagement
+                </p>
+                <p className="text-base font-bold" style={{ color: VIOLET }}>
+                  {fmtNum(dayData[bestDayIdx].avg)}
+                </p>
+              </div>
+            </motion.div>
+          )}
+          <div className="flex items-end gap-1.5 h-20">
             {dayData.map((d, i) => {
               const heightPct = Math.max((d.avg / maxDay) * 100, 4);
               const isBest = i === bestDayIdx && d.count > 0;
               return (
                 <div
                   key={d.name}
-                  className="flex flex-col items-center gap-1 flex-1 group relative"
+                  className="flex flex-col items-center gap-0.5 flex-1 group relative"
                 >
                   <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
                     <p className="font-bold" style={{ color: VIOLET }}>
@@ -918,7 +1011,7 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{
-                        height: d.count > 0 ? `${heightPct}%` : "4px",
+                        height: d.count > 0 ? `${heightPct}%` : "3px",
                         opacity: 1,
                       }}
                       transition={{
@@ -926,25 +1019,25 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
                         duration: 0.5,
                         ease: "easeOut",
                       }}
-                      className="w-full rounded-t-md min-h-[3px] relative overflow-hidden"
+                      className="w-full rounded-t-sm min-h-[3px]"
                       style={{
                         background:
                           d.count > 0
                             ? isBest
                               ? `linear-gradient(to top,${VIOLET},${VIOLET}80)`
-                              : `${VIOLET}40`
-                            : "hsl(var(--muted)/0.25)",
-                        boxShadow: isBest ? `0 0 8px ${VIOLET}50` : "none",
+                              : VIOLET + "30"
+                            : "hsl(var(--muted)/0.2)",
+                        boxShadow: isBest ? `0 0 6px ${VIOLET}50` : "none",
                       }}
-                    >
-                      {isBest && (
-                        <div className="absolute inset-0 bg-gradient-to-t from-transparent via-white/15 to-white/30" />
-                      )}
-                    </motion.div>
+                    />
                   </div>
                   <span
-                    className={`text-[8px] ${isBest ? "font-bold" : "text-muted-foreground/60"}`}
-                    style={isBest ? { color: VIOLET } : {}}
+                    className="text-[8px]"
+                    style={{
+                      color: isBest
+                        ? VIOLET
+                        : "hsl(var(--muted-foreground)/0.5)",
+                    }}
                   >
                     {d.name}
                   </span>
@@ -952,10 +1045,6 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
               );
             })}
           </div>
-          <p className="text-[10px] text-center" style={{ color: VIOLET }}>
-            Best: <strong>{dayData[bestDayIdx]?.name}</strong> · avg{" "}
-            {fmtNum(dayData[bestDayIdx]?.avg)} engagement
-          </p>
         </div>
       )}
     </div>
@@ -1090,14 +1179,14 @@ function ImpressionsLineChart({
           />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tick={{ fontSize: 10, fill: "transparent" }}
             tickLine={false}
             axisLine={false}
           />
           <YAxis
             yAxisId="left"
             tickFormatter={fmtNum}
-            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tick={{ fontSize: 10, fill: "transparent" }}
             tickLine={false}
             axisLine={false}
           />
@@ -1106,7 +1195,7 @@ function ImpressionsLineChart({
               yAxisId="right"
               orientation="right"
               tickFormatter={fmtNum}
-              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tick={{ fontSize: 10, fill: "transparent" }}
               tickLine={false}
               axisLine={false}
             />
@@ -2175,16 +2264,14 @@ Engagements: ${totalEng}`,
                 How to export from LinkedIn:
               </p>
               <p>
-                🗒 <strong>Per-post:</strong> Go to your post → Analytics →
-                Export
+                <strong>Per-post:</strong> Go to your post → Analytics → Export
               </p>
               <p>
-                📅 <strong>Weekly:</strong> Creator Analytics → Export (date
-                range) → .xlsx
+                <strong>Weekly:</strong> Creator Analytics → Export (date range)
+                → .xlsx
               </p>
-              <p>
-                Both formats supported — we auto-detect and import all posts +
-                demographics
+              <p className="text-muted-foreground/70">
+                Both formats auto-detected — imports posts + full demographics
               </p>
             </div>
             <input
@@ -2773,7 +2860,7 @@ function AccountInsightsOverlay({
               <JobFunctionBars posts={account.posts ?? []} />
             </div>
 
-            {/* Industries — circles */}
+            {/* Industries — donut pie chart */}
             {(() => {
               const allInd: Array<{ name: string; pct: number }> = [];
               (account.posts ?? []).forEach((p) =>
@@ -2784,7 +2871,17 @@ function AccountInsightsOverlay({
                 }),
               );
               if (!allInd.length) return null;
-              const maxP = Math.max(...allInd.map((i) => i.pct));
+              const slices = allInd.slice(0, 6);
+              const total = slices.reduce((s, i) => s + i.pct, 0) || 1;
+              // Electric-blue adjacent shades — same hue family, distinct brightness
+              const PIE_COLORS = [
+                "#38bdf8",
+                "#818cf8",
+                "#6ee7b7",
+                "#a78bfa",
+                "#7dd3fc",
+                "#c4b5fd",
+              ];
               return (
                 <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
                   <div className="flex items-center gap-2 mb-4">
@@ -2796,63 +2893,78 @@ function AccountInsightsOverlay({
                         Industries
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        Sectors your audience works in · hover for details
+                        Sectors your audience works in
                       </p>
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-3 justify-center">
-                    {allInd.slice(0, 6).map((ind, i) => {
-                      const color = CHART_COLORS[i % CHART_COLORS.length];
-                      const size = 58 + (ind.pct / maxP) * 40;
-                      return (
-                        <motion.div
-                          key={ind.name}
-                          initial={{ scale: 0, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          transition={{
-                            delay: i * 0.07,
-                            type: "spring",
-                            stiffness: 220,
-                            damping: 16,
-                          }}
-                          whileHover={{ scale: 1.1 }}
-                          title={`${ind.name}: ${ind.pct}%`}
-                          className="flex flex-col items-center justify-center rounded-full text-center cursor-default relative group"
-                          style={{
-                            width: size,
-                            height: size,
-                            background: `radial-gradient(circle at 36% 36%, ${color}40, ${color}15)`,
-                            border: `1.5px solid ${color}55`,
-                            boxShadow: `0 0 ${size * 0.3}px ${color}22`,
-                          }}
+                  <div className="flex items-center gap-4">
+                    {/* Donut */}
+                    <div className="flex-shrink-0">
+                      <PieChart width={140} height={140}>
+                        <Pie
+                          data={slices}
+                          cx={65}
+                          cy={65}
+                          innerRadius={38}
+                          outerRadius={62}
+                          dataKey="pct"
+                          paddingAngle={2}
+                          strokeWidth={0}
                         >
-                          <span
-                            className="text-[11px] font-bold"
-                            style={{ color }}
+                          {slices.map((_, i) => (
+                            <Cell
+                              key={i}
+                              fill={PIE_COLORS[i % PIE_COLORS.length]}
+                              fillOpacity={0.9}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload;
+                            const color =
+                              PIE_COLORS[slices.indexOf(d) % PIE_COLORS.length];
+                            return (
+                              <div className="bg-card border border-border rounded-lg px-2.5 py-1.5 text-[10px] shadow-lg">
+                                <p className="font-bold" style={{ color }}>
+                                  {d.name}
+                                </p>
+                                <p className="text-muted-foreground">
+                                  {d.pct}% of audience
+                                </p>
+                              </div>
+                            );
+                          }}
+                        />
+                      </PieChart>
+                    </div>
+                    {/* Legend */}
+                    <div className="flex-1 space-y-1.5 min-w-0">
+                      {slices.map((ind, i) => {
+                        const color = PIE_COLORS[i % PIE_COLORS.length];
+                        return (
+                          <div
+                            key={ind.name}
+                            className="flex items-center gap-2"
                           >
-                            {ind.pct}%
-                          </span>
-                          <span
-                            className="text-[7px] leading-tight px-1.5 text-center"
-                            style={{ color: color + "cc" }}
-                            dangerouslySetInnerHTML={{
-                              __html:
-                                ind.name.length > 14
-                                  ? ind.name.replace(/ /g, "<br/>").slice(0, 24)
-                                  : ind.name,
-                            }}
-                          />
-                          <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20 shadow-lg">
-                            <span className="font-semibold" style={{ color }}>
+                            <div
+                              className="w-2 h-2 rounded-full flex-shrink-0"
+                              style={{ background: color }}
+                            />
+                            <span className="text-[10px] text-muted-foreground truncate flex-1">
                               {ind.name}
                             </span>
-                            <span className="text-muted-foreground ml-1">
+                            <span
+                              className="text-[10px] font-bold flex-shrink-0"
+                              style={{ color }}
+                            >
                               {ind.pct}%
                             </span>
                           </div>
-                        </motion.div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               );
@@ -3516,7 +3628,22 @@ function PostsTable({
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
+// Material Symbols font loaded once per mount
+function useMaterialSymbols() {
+  useEffect(() => {
+    const id = "material-symbols-outlined-css";
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href =
+      "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=alarm,calendar_today";
+    document.head.appendChild(link);
+  }, []);
+}
+
 export default function LinkedInPage() {
+  useMaterialSymbols();
   const { workspace } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [accounts, setAccounts] = useState<LinkedInAccount[]>([]);
