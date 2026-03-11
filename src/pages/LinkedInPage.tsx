@@ -87,15 +87,20 @@ export interface LinkedInPost {
   comments: number;
   reposts: number;
   views: number;
-  saves?: number;
-  membersReached?: number;
-  followersGained?: number;
+  saves: number;
+  membersReached: number;
+  followersGained: number;
+  profileViewers?: number;
+  sends?: number;
   date: string;
   publishTime?: string;
   reactionIcon?: string;
   tags?: string[];
   topLocations?: Array<{ name: string; pct: number }>;
   topJobFunctions?: Array<{ name: string; pct: number }>;
+  topIndustries?: Array<{ name: string; pct: number }>;
+  topSeniority?: Array<{ name: string; pct: number }>;
+  topCompanySizes?: Array<{ name: string; pct: number }>;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -110,14 +115,8 @@ const AVATAR_COLORS = [
   "#14b8a6",
 ];
 
-// 2 gradient presets shown as single circle swatches
+// 1 gradient preset — Aurora only (Ocean removed)
 const GRADIENT_PRESETS = [
-  {
-    id: "grad-ocean",
-    label: "Ocean",
-    css: "linear-gradient(135deg, #1e3a8a 0%, #1d6fff 100%)",
-    sparkColor: "#1d6fff",
-  },
   {
     id: "grad-aurora",
     label: "Aurora",
@@ -243,77 +242,177 @@ function ColorPicker({
   onChange: (c: string) => void;
 }) {
   const customInputRef = useRef<HTMLInputElement>(null);
-  // detect if current value is a custom hex (not in presets/AVATAR_COLORS)
-  const isCustom =
-    value.startsWith("#") &&
-    !AVATAR_COLORS.includes(value) &&
-    !AVATAR_COLORS.some((c) => value.startsWith(c));
+  const [showGradientBuilder, setShowGradientBuilder] = useState(false);
+  const [gradColor1, setGradColor1] = useState("#6366f1");
+  const [gradColor2, setGradColor2] = useState("#ec4899");
+  const [gradAngle, setGradAngle] = useState(135);
+  const gradRef1 = useRef<HTMLInputElement>(null);
+  const gradRef2 = useRef<HTMLInputElement>(null);
+
+  const isCustomSolid = value.startsWith("#") && !AVATAR_COLORS.includes(value);
+  const isCustomGrad =
+    value.startsWith("linear-gradient") &&
+    !GRADIENT_PRESETS.find((g) => g.css === value);
+
+  const buildGradient = (c1 = gradColor1, c2 = gradColor2, angle = gradAngle) =>
+    `linear-gradient(${angle}deg, ${c1} 0%, ${c2} 100%)`;
+
+  const applyGradient = () => onChange(buildGradient());
+
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-3 items-end">
+      <div className="flex flex-wrap gap-2.5 items-center">
         {/* Clear */}
         <button
           onClick={() => onChange("")}
-          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${value === "" ? "border-foreground scale-110" : "border-border"}`}
+          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all flex-shrink-0 ${value === "" ? "border-foreground scale-110" : "border-border"}`}
           title="None"
         >
           <X className="w-3 h-3 text-muted-foreground" />
         </button>
-        {/* Solid colors only */}
+        {/* Solid colors */}
         {AVATAR_COLORS.map((c) => (
           <button
             key={c}
             onClick={() => onChange(c)}
             style={{ background: c }}
-            className={`w-8 h-8 rounded-full transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
+            className={`w-8 h-8 rounded-full flex-shrink-0 transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
           />
         ))}
-        {/* Gradient preset circles */}
+        {/* Aurora preset */}
         {GRADIENT_PRESETS.map((g) => (
-          <div key={g.id} className="flex flex-col items-center gap-1.5">
-            <button
-              onClick={() => onChange(g.id)}
-              style={{ background: g.css }}
-              title={g.label}
-              className={`w-8 h-8 rounded-full transition-all ${value === g.id ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
-            />
-            <span className="text-[9px] text-muted-foreground">{g.label}</span>
-          </div>
-        ))}
-        {/* Custom color picker */}
-        <div className="flex flex-col items-center gap-1.5">
           <button
-            onClick={() => customInputRef.current?.click()}
-            title="Custom color"
-            className={`w-8 h-8 rounded-full border-2 border-dashed flex items-center justify-center transition-all overflow-hidden relative ${isCustom ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110 border-transparent" : "border-border hover:border-primary/60"}`}
-            style={isCustom ? { background: value } : {}}
-          >
-            {!isCustom && (
-              <svg
-                viewBox="0 0 24 24"
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  d="M12 3v1m0 16v1M4.22 4.22l.71.71m13.36 13.36.71.71M3 12h1m16 0h1M4.22 19.78l.71-.71M18.36 5.64l.71-.71"
-                  strokeLinecap="round"
-                />
-                <circle cx="12" cy="12" r="4" />
-              </svg>
-            )}
-            <input
-              ref={customInputRef}
-              type="color"
-              defaultValue={isCustom ? value : "#6366f1"}
-              onChange={(e) => onChange(e.target.value)}
-              className="sr-only"
-            />
-          </button>
-          <span className="text-[9px] text-muted-foreground">Custom</span>
-        </div>
+            key={g.id}
+            onClick={() => onChange(g.id)}
+            style={{ background: g.css }}
+            title={g.label}
+            className={`w-8 h-8 rounded-full flex-shrink-0 transition-all ${value === g.id ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
+          />
+        ))}
+        {/* Custom solid */}
+        <button
+          onClick={() => customInputRef.current?.click()}
+          title="Custom solid color"
+          className={`w-8 h-8 rounded-full flex-shrink-0 border-2 border-dashed flex items-center justify-center transition-all ${isCustomSolid ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110 border-transparent" : "border-border hover:border-primary/60"}`}
+          style={isCustomSolid ? { background: value } : {}}
+        >
+          {!isCustomSolid && (
+            <span className="text-[11px] text-muted-foreground font-bold">
+              +
+            </span>
+          )}
+          <input
+            ref={customInputRef}
+            type="color"
+            defaultValue={isCustomSolid ? value : "#6366f1"}
+            onChange={(e) => onChange(e.target.value)}
+            className="sr-only"
+          />
+        </button>
+        {/* Gradient builder toggle */}
+        <button
+          onClick={() => setShowGradientBuilder(!showGradientBuilder)}
+          title="Build a gradient"
+          className={`h-8 px-2.5 rounded-full flex-shrink-0 border-2 border-dashed flex items-center gap-1.5 transition-all text-[10px] font-semibold ${showGradientBuilder || isCustomGrad ? "border-primary/60 bg-primary/10 text-primary scale-105" : "border-border text-muted-foreground hover:border-primary/40"}`}
+          style={isCustomGrad ? { background: value, border: "none" } : {}}
+        >
+          {isCustomGrad ? (
+            <span className="text-white drop-shadow text-[9px] px-0.5">
+              Custom ✓
+            </span>
+          ) : (
+            <>
+              <span
+                style={{ background: "linear-gradient(90deg,#6366f1,#ec4899)" }}
+                className="w-3 h-3 rounded-full"
+              />
+              Gradient
+            </>
+          )}
+        </button>
       </div>
+
+      {/* Gradient builder panel */}
+      {showGradientBuilder && (
+        <motion.div
+          initial={{ opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          className="rounded-xl border border-border bg-muted/40 p-3 space-y-3"
+        >
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+            Gradient Builder
+          </p>
+          {/* Preview */}
+          <div
+            className="h-8 rounded-lg w-full"
+            style={{ background: buildGradient() }}
+          />
+          <div className="flex items-center gap-3">
+            {/* Color 1 */}
+            <div className="flex flex-col items-center gap-1">
+              <button
+                onClick={() => gradRef1.current?.click()}
+                className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
+                style={{ background: gradColor1 }}
+                title="Color 1"
+              />
+              <span className="text-[9px] text-muted-foreground">From</span>
+              <input
+                ref={gradRef1}
+                type="color"
+                value={gradColor1}
+                onChange={(e) => {
+                  setGradColor1(e.target.value);
+                }}
+                className="sr-only"
+              />
+            </div>
+            {/* Angle */}
+            <div className="flex-1 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] text-muted-foreground">Angle</span>
+                <span className="text-[9px] font-bold text-foreground">
+                  {gradAngle}°
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={360}
+                value={gradAngle}
+                onChange={(e) => setGradAngle(Number(e.target.value))}
+                className="w-full h-1.5 rounded-full accent-primary"
+              />
+            </div>
+            {/* Color 2 */}
+            <div className="flex flex-col items-center gap-1">
+              <button
+                onClick={() => gradRef2.current?.click()}
+                className="w-8 h-8 rounded-full border-2 border-white/20 shadow-sm"
+                style={{ background: gradColor2 }}
+                title="Color 2"
+              />
+              <span className="text-[9px] text-muted-foreground">To</span>
+              <input
+                ref={gradRef2}
+                type="color"
+                value={gradColor2}
+                onChange={(e) => {
+                  setGradColor2(e.target.value);
+                }}
+                className="sr-only"
+              />
+            </div>
+          </div>
+          <button
+            onClick={applyGradient}
+            className="w-full py-1.5 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90"
+          >
+            Apply Gradient
+          </button>
+        </motion.div>
+      )}
     </div>
   );
 }
@@ -675,6 +774,10 @@ function ImpressionsLineChart({
 }) {
   const [period, setPeriod] = useState<"all" | "30d" | "90d">("all");
   const [showEngagement, setShowEngagement] = useState(false);
+  const [impressionColor, setImpressionColor] = useState("#3b82f6");
+  const [engagementColor, setEngagementColor] = useState("#10b981");
+  const impColorRef = useRef<HTMLInputElement>(null);
+  const engColorRef = useRef<HTMLInputElement>(null);
 
   const filtered = posts
     .filter((p) => {
@@ -703,22 +806,70 @@ function ImpressionsLineChart({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-blue-500" />
+        <div className="flex items-center gap-2.5">
+          {/* Impressions color dot */}
+          <button
+            onClick={() => impColorRef.current?.click()}
+            title="Change impressions color"
+            className="flex items-center gap-1.5 hover:opacity-80 transition-opacity"
+          >
+            <div
+              className="w-3 h-3 rounded-full border border-white/20"
+              style={{ background: impressionColor }}
+            />
             <span className="text-[10px] text-muted-foreground">
               Impressions
             </span>
-          </div>
+          </button>
+          <input
+            ref={impColorRef}
+            type="color"
+            value={impressionColor}
+            onChange={(e) => setImpressionColor(e.target.value)}
+            className="sr-only"
+          />
+
+          {/* Engagement toggle + color */}
           <button
             onClick={() => setShowEngagement(!showEngagement)}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-500" : "border-border text-muted-foreground hover:bg-muted"}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-current/50 bg-current/10" : "border-border text-muted-foreground hover:bg-muted"}`}
+            style={
+              showEngagement
+                ? {
+                    color: engagementColor,
+                    borderColor: engagementColor + "50",
+                    background: engagementColor + "15",
+                  }
+                : {}
+            }
           >
             <div
-              className={`w-2.5 h-2.5 rounded-full ${showEngagement ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+              className="w-2.5 h-2.5 rounded-full"
+              style={{
+                background: showEngagement
+                  ? engagementColor
+                  : "hsl(var(--muted-foreground)/0.4)",
+              }}
             />
             {showEngagement ? "✓" : "+"} Engagement
           </button>
+          {showEngagement && (
+            <>
+              <button
+                onClick={() => engColorRef.current?.click()}
+                title="Change engagement color"
+                className="w-5 h-5 rounded-full border border-white/20 hover:scale-110 transition-transform"
+                style={{ background: engagementColor }}
+              />
+              <input
+                ref={engColorRef}
+                type="color"
+                value={engagementColor}
+                onChange={(e) => setEngagementColor(e.target.value)}
+                className="sr-only"
+              />
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           {(["30d", "90d", "all"] as const).map((p) => (
@@ -780,11 +931,11 @@ function ImpressionsLineChart({
                     {d.title}
                   </p>
                   <p className="text-muted-foreground">{d.date}</p>
-                  <p className="text-blue-500 font-bold">
+                  <p className="font-bold" style={{ color: impressionColor }}>
                     {fmtNum(d.views)} impressions
                   </p>
                   {showEngagement && (
-                    <p className="text-emerald-500 font-bold">
+                    <p className="font-bold" style={{ color: engagementColor }}>
                       {fmtNum(d.engagement)} engagement
                     </p>
                   )}
@@ -796,9 +947,9 @@ function ImpressionsLineChart({
             yAxisId="left"
             type="monotone"
             dataKey="views"
-            stroke="#3b82f6"
+            stroke={impressionColor}
             strokeWidth={2.5}
-            dot={{ r: 3, fill: "#3b82f6" }}
+            dot={{ r: 3, fill: impressionColor }}
             activeDot={{ r: 5 }}
             name="Impressions"
           />
@@ -807,9 +958,9 @@ function ImpressionsLineChart({
               yAxisId="right"
               type="monotone"
               dataKey="engagement"
-              stroke="#10b981"
+              stroke={engagementColor}
               strokeWidth={2}
-              dot={{ r: 3, fill: "#10b981" }}
+              dot={{ r: 3, fill: engagementColor }}
               activeDot={{ r: 4 }}
               name="Engagement"
             />
@@ -1159,198 +1310,124 @@ function AddPostModal({
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer);
         const wb = XLSX.read(data, { type: "array" });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1 });
-        const posts: LinkedInPost[] = [];
-        let i = 0;
 
-        while (i < rows.length) {
-          const row = rows[i];
-          if (!row || !row[0]) {
-            i++;
-            continue;
-          }
-          const key = String(row[0]).trim();
+        // ── Sheet 1: PERFORMANCE ──────────────────────────────────────────────
+        const perfSheet = wb.Sheets[wb.SheetNames[0]];
+        const perfRows: any[][] = XLSX.utils.sheet_to_json(perfSheet, {
+          header: 1,
+        });
 
-          if (key === "Post URL") {
-            // collect all data for this post block
-            const postUrl = String(
-              row[1] || (row[0] === "Post URL" && rows[i]?.[1]) || "",
-            ).trim();
-            let impressions = 0,
-              membersReached = 0,
-              profileViewers = 0,
-              reactions = 0;
-            let comments = 0,
-              reposts = 0,
-              saves = 0,
-              followersGained = 0,
-              sends = 0;
-            let postDate = "",
-              publishTime = "";
-            const topLocations: Array<{ name: string; pct: number }> = [];
-            const topJobFunctions: Array<{ name: string; pct: number }> = [];
-
-            // Track which section we're in for audience highlights
-            let currentSection:
-              | "none"
-              | "reactions_highlights"
-              | "comments_highlights" = "none";
-            let inLocationBlock = false;
-            let inJobBlock = false;
-
-            let j = i + 1;
-            while (j < rows.length) {
-              const k = String(rows[j]?.[0] || "").trim();
-              const col1 = String(rows[j]?.[1] || "").trim();
-              const col2 = String(rows[j]?.[2] || "").trim();
-              const numVal = parseInt(col1.replace(/,/g, "")) || 0;
-
-              // Stop when we hit next post
-              if (k === "Post URL" && j !== i) break;
-
-              // Core metrics
-              if (k === "Post Date") {
-                postDate = col1;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Publish time" || k === "Post Publish Time") {
-                publishTime = col1;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Impressions") {
-                impressions = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Members reached") {
-                membersReached = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Profile viewers from this post") {
-                profileViewers = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Followers gained from this post") {
-                followersGained = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Reactions") {
-                reactions = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Comments") {
-                comments = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Reposts") {
-                reposts = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Saves") {
-                saves = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              } else if (k === "Sends on LinkedIn") {
-                sends = numVal;
-                inLocationBlock = false;
-                inJobBlock = false;
-              }
-
-              // Section headers
-              else if (k.includes("Highlights") || k === "Post Performance") {
-                currentSection = k.toLowerCase().includes("comment")
-                  ? "comments_highlights"
-                  : "reactions_highlights";
-                inLocationBlock = false;
-                inJobBlock = false;
-              }
-
-              // Audience sub-sections — set context flags
-              else if (k === "Top location") {
-                inLocationBlock = true;
-                inJobBlock = false;
-              } else if (
-                k === "Top job title" ||
-                k === "Top job function" ||
-                k === "Top industry"
-              ) {
-                inJobBlock = true;
-                inLocationBlock = false;
-              }
-
-              // Data rows after location/job headers: col[0] has the value, col[1] might have count
-              else if (inLocationBlock && k && !k.includes("Top")) {
-                // k is the location name, col1 might be count or empty
-                if (k && !topLocations.find((l) => l.name === k)) {
-                  // Use a placeholder pct — we rank by order (first = most common)
-                  const rank = topLocations.length;
-                  topLocations.push({
-                    name: k,
-                    pct: Math.max(50 - rank * 12, 5),
-                  });
-                }
-              } else if (inJobBlock && k && !k.includes("Top")) {
-                if (k && !topJobFunctions.find((f) => f.name === k)) {
-                  const rank = topJobFunctions.length;
-                  topJobFunctions.push({
-                    name: k,
-                    pct: Math.max(50 - rank * 12, 5),
-                  });
-                }
-              }
-
-              j++;
-            }
-
-            // Parse date
-            let formattedDate = new Date().toISOString().split("T")[0];
-            try {
-              const d = new Date(postDate);
-              if (!isNaN(d.getTime()))
-                formattedDate = d.toISOString().split("T")[0];
-            } catch {}
-
-            const pid = `post_${Date.now()}_${posts.length}`;
-            posts.push({
-              id: pid,
-              title: `LinkedIn Post — ${formattedDate}`,
-              content: "",
-              postUrl,
-              likes: reactions,
-              comments,
-              reposts,
-              views: impressions,
-              saves,
-              membersReached,
-              followersGained,
-              date: formattedDate,
-              publishTime,
-              reactionIcon: "none",
-              tags: [],
-              topLocations: topLocations.length ? topLocations : undefined,
-              topJobFunctions: topJobFunctions.length
-                ? topJobFunctions
-                : undefined,
-            });
-            i = j;
-          } else {
-            i++;
-          }
+        const kv: Record<string, string> = {};
+        for (const row of perfRows) {
+          const k = String(row?.[0] || "").trim();
+          const v = String(row?.[1] || "").trim();
+          if (k) kv[k] = v;
         }
 
-        if (posts.length === 0)
-          setImportError(
-            "No posts found. Make sure this is a LinkedIn analytics export.",
-          );
-        else {
-          setImportPreview(posts);
-          const titles: Record<string, string> = {};
-          posts.forEach((p) => {
-            titles[p.id] = "";
+        const parseNum = (s: string) =>
+          parseInt(String(s || "0").replace(/,/g, "")) || 0;
+
+        const postUrl = kv["Post URL"] || "";
+        const postDate = kv["Post Date"] || "";
+        const publishTime = kv["Post Publish Time"] || kv["Publish time"] || "";
+        const impressions = parseNum(kv["Impressions"]);
+        const membersReached = parseNum(kv["Members reached"]);
+        const profileViewers = parseNum(kv["Profile viewers from this post"]);
+        const followersGained = parseNum(kv["Followers gained from this post"]);
+        const reactions = parseNum(kv["Reactions"]);
+        const comments = parseNum(kv["Comments"]);
+        const reposts = parseNum(kv["Reposts"]);
+        const saves = parseNum(kv["Saves"]);
+        const sends = parseNum(kv["Sends on LinkedIn"]);
+
+        const highlightLocation = kv["Top location"] || "";
+        const highlightJobTitle = kv["Top job title"] || "";
+        const highlightIndustry = kv["Top industry"] || "";
+
+        // ── Sheet 2: TOP DEMOGRAPHICS ─────────────────────────────────────────
+        const topLocations: Array<{ name: string; pct: number }> = [];
+        const topJobFunctions: Array<{ name: string; pct: number }> = [];
+        const topIndustries: Array<{ name: string; pct: number }> = [];
+        const topSeniority: Array<{ name: string; pct: number }> = [];
+        const topCompanySizes: Array<{ name: string; pct: number }> = [];
+
+        if (wb.SheetNames.length > 1) {
+          const demoSheet = wb.Sheets[wb.SheetNames[1]];
+          const demoRows: any[][] = XLSX.utils.sheet_to_json(demoSheet, {
+            header: 1,
           });
-          setImportTitles(titles);
+          for (const row of demoRows) {
+            const cat = String(row?.[0] || "").trim();
+            const val = String(row?.[1] || "").trim();
+            const pctRaw = row?.[2];
+            if (!cat || !val || cat === "Category") continue;
+            let pct = 0;
+            if (typeof pctRaw === "number") pct = Math.round(pctRaw * 100);
+            else if (typeof pctRaw === "string" && pctRaw.includes("%"))
+              pct = 1;
+            if (cat === "Location") topLocations.push({ name: val, pct });
+            else if (cat === "Job title")
+              topJobFunctions.push({ name: val, pct });
+            else if (cat === "Industry") topIndustries.push({ name: val, pct });
+            else if (cat === "Seniority") topSeniority.push({ name: val, pct });
+            else if (cat === "Company size")
+              topCompanySizes.push({ name: val, pct });
+          }
         }
+
+        // Fallback to sheet1 single highlight values
+        if (topLocations.length === 0 && highlightLocation)
+          topLocations.push({ name: highlightLocation, pct: 50 });
+        if (topJobFunctions.length === 0 && highlightJobTitle)
+          topJobFunctions.push({ name: highlightJobTitle, pct: 50 });
+        if (topIndustries.length === 0 && highlightIndustry)
+          topIndustries.push({ name: highlightIndustry, pct: 50 });
+
+        let formattedDate = new Date().toISOString().split("T")[0];
+        try {
+          const d = new Date(postDate);
+          if (!isNaN(d.getTime()))
+            formattedDate = d.toISOString().split("T")[0];
+        } catch {}
+
+        if (!postUrl && impressions === 0) {
+          setImportError(
+            "No post data found. Make sure this is a LinkedIn analytics export.",
+          );
+          return;
+        }
+
+        const pid = `post_${Date.now()}_0`;
+        // Build post with NO undefined values — Firebase rejects undefined
+        const newPost: LinkedInPost = {
+          id: pid,
+          title: `LinkedIn Post — ${formattedDate}`,
+          content: "",
+          postUrl,
+          likes: reactions,
+          comments,
+          reposts,
+          views: impressions,
+          saves,
+          membersReached,
+          followersGained,
+          profileViewers,
+          sends,
+          date: formattedDate,
+          publishTime: publishTime || "",
+          reactionIcon: "none",
+          tags: [],
+          ...(topLocations.length ? { topLocations } : {}),
+          ...(topJobFunctions.length ? { topJobFunctions } : {}),
+          ...(topIndustries.length ? { topIndustries } : {}),
+          ...(topSeniority.length ? { topSeniority } : {}),
+          ...(topCompanySizes.length ? { topCompanySizes } : {}),
+        };
+
+        setImportPreview([newPost]);
+        setImportTitles({ [pid]: "" });
       } catch (err) {
+        console.error("Excel parse error:", err);
         setImportError(
           "Failed to read file. Make sure it's a valid LinkedIn Excel export (.xlsx).",
         );
@@ -2139,7 +2216,7 @@ function AccountInsightsOverlay({
               <GeoBubbles posts={account.posts ?? []} />
             </div>
 
-            {/* Job Functions */}
+            {/* Job Titles */}
             <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-7 h-7 rounded-xl bg-purple-500/15 flex items-center justify-center">
@@ -2147,7 +2224,7 @@ function AccountInsightsOverlay({
                 </div>
                 <div>
                   <p className="text-xs font-bold text-foreground">
-                    Job Functions
+                    Job Titles
                   </p>
                   <p className="text-[10px] text-muted-foreground">
                     Who's engaging with your content
@@ -2157,7 +2234,165 @@ function AccountInsightsOverlay({
               <JobFunctionBars posts={account.posts ?? []} />
             </div>
 
-            {/* Post timing — as avg card not dashboard */}
+            {/* Industries */}
+            {(() => {
+              const allIndustries: Array<{ name: string; pct: number }> = [];
+              (account.posts ?? []).forEach((p) =>
+                p.topIndustries?.forEach((i) => {
+                  const ex = allIndustries.find((x) => x.name === i.name);
+                  if (ex) ex.pct = Math.max(ex.pct, i.pct);
+                  else allIndustries.push({ ...i });
+                }),
+              );
+              if (!allIndustries.length) return null;
+              const COLORS = [
+                "#f97316",
+                "#84cc16",
+                "#06b6d4",
+                "#8b5cf6",
+                "#f43f5e",
+              ];
+              const maxPct = Math.max(...allIndustries.map((i) => i.pct));
+              return (
+                <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-xl bg-orange-500/15 flex items-center justify-center">
+                      <span className="text-sm">🏭</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-foreground">
+                        Industries
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Sectors your audience works in
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2.5">
+                    {allIndustries.slice(0, 5).map((ind, i) => {
+                      const color = COLORS[i % COLORS.length];
+                      return (
+                        <div key={ind.name} className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="text-[10px] font-semibold truncate max-w-[150px]"
+                              style={{ color }}
+                            >
+                              {ind.name}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold px-1.5 py-0.5 rounded-md flex-shrink-0"
+                              style={{ background: color + "18", color }}
+                            >
+                              {ind.pct}%
+                            </span>
+                          </div>
+                          <div
+                            className="h-3 rounded-full overflow-hidden"
+                            style={{ background: color + "15" }}
+                          >
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{
+                                width: `${(ind.pct / maxPct) * 100}%`,
+                              }}
+                              transition={{
+                                delay: i * 0.07,
+                                duration: 0.6,
+                                ease: "easeOut",
+                              }}
+                              className="h-full rounded-full"
+                              style={{
+                                background: `linear-gradient(90deg, ${color}ee, ${color}88)`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Seniority */}
+            {(() => {
+              const allSeniority: Array<{ name: string; pct: number }> = [];
+              (account.posts ?? []).forEach((p) =>
+                p.topSeniority?.forEach((s) => {
+                  const ex = allSeniority.find((x) => x.name === s.name);
+                  if (ex) ex.pct = Math.max(ex.pct, s.pct);
+                  else allSeniority.push({ ...s });
+                }),
+              );
+              if (!allSeniority.length) return null;
+              const COLORS = [
+                "#6366f1",
+                "#0ea5e9",
+                "#10b981",
+                "#f59e0b",
+                "#ec4899",
+              ];
+              const maxPct = Math.max(...allSeniority.map((s) => s.pct));
+              return (
+                <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-7 h-7 rounded-xl bg-cyan-500/15 flex items-center justify-center">
+                      <span className="text-sm">📊</span>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-foreground">
+                        Seniority
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Career level of your audience
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {allSeniority.slice(0, 6).map((s, i) => {
+                      const color = COLORS[i % COLORS.length];
+                      const size = 44 + (s.pct / maxPct) * 40;
+                      return (
+                        <motion.div
+                          key={s.name}
+                          initial={{ scale: 0, opacity: 0 }}
+                          animate={{ scale: 1, opacity: 1 }}
+                          transition={{
+                            delay: i * 0.06,
+                            type: "spring",
+                            stiffness: 220,
+                            damping: 16,
+                          }}
+                          className="flex flex-col items-center justify-center rounded-2xl text-center"
+                          style={{
+                            width: size,
+                            height: size,
+                            background: color + "18",
+                            border: `1.5px solid ${color}50`,
+                          }}
+                        >
+                          <span
+                            className="text-[11px] font-bold leading-none"
+                            style={{ color }}
+                          >
+                            {s.pct}%
+                          </span>
+                          <span
+                            className="text-[8px] leading-tight px-1 mt-0.5"
+                            style={{ color: color + "cc" }}
+                          >
+                            {s.name}
+                          </span>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Post timing */}
             <div className="rounded-2xl bg-muted/30 border border-border/60 p-4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-7 h-7 rounded-xl bg-amber-500/15 flex items-center justify-center">
