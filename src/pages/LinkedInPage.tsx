@@ -27,6 +27,13 @@ import {
   ArrowUpDown,
   Calendar,
   Flame,
+  Tag,
+  MapPin,
+  Briefcase,
+  Clock,
+  Heart,
+  Repeat2,
+  Bookmark,
 } from "lucide-react";
 import {
   LineChart,
@@ -84,7 +91,11 @@ export interface LinkedInPost {
   membersReached?: number;
   followersGained?: number;
   date: string;
+  publishTime?: string;
   reactionIcon?: string;
+  tags?: string[];
+  topLocations?: Array<{ name: string; pct: number }>;
+  topJobFunctions?: Array<{ name: string; pct: number }>;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -97,6 +108,54 @@ const AVATAR_COLORS = [
   "#f59e0b",
   "#ef4444",
   "#14b8a6",
+];
+
+const GRADIENT_COLORS = [
+  {
+    label: "Electric",
+    value: "grad-electric",
+    bg: "linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%)",
+    sparkColor: "#7c3aed",
+  },
+  {
+    label: "Glam",
+    value: "grad-glam",
+    bg: "linear-gradient(135deg, #3b82f6 0%, #ec4899 50%, #8b5cf6 100%)",
+    sparkColor: "#ec4899",
+  },
+];
+
+const CONTENT_TAGS = [
+  {
+    id: "tofu",
+    label: "ToFu",
+    color: "bg-blue-500/10 text-blue-400 border border-blue-500/20",
+  },
+  {
+    id: "mofu",
+    label: "MoFu",
+    color: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
+  },
+  {
+    id: "bofu",
+    label: "BoFu",
+    color: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+  },
+  {
+    id: "personal",
+    label: "Personal",
+    color: "bg-pink-500/10 text-pink-400 border border-pink-500/20",
+  },
+  {
+    id: "educational",
+    label: "Educational",
+    color: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+  },
+  {
+    id: "insightful",
+    label: "Insightful",
+    color: "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20",
+  },
 ];
 
 const REACTION_ICONS = [
@@ -118,6 +177,15 @@ const REACTION_ICONS = [
   { id: "brain", label: "Brain", svg: "🧠" },
 ];
 
+const GEO_BUBBLE_COLORS = [
+  "#6366f1",
+  "#0ea5e9",
+  "#10b981",
+  "#f59e0b",
+  "#ec4899",
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function initials(name: string) {
   return name
     .split(" ")
@@ -133,6 +201,24 @@ function fmtNum(n: number): string {
     return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
   return String(n);
+}
+
+function getAvatarBg(avatarColor: string): string {
+  if (!avatarColor) return "linear-gradient(135deg, #6366f1, #6366f188)";
+  const grad = GRADIENT_COLORS.find((g) => g.value === avatarColor);
+  if (grad) return grad.bg;
+  if (avatarColor.startsWith("linear-gradient")) return avatarColor;
+  return `linear-gradient(135deg, ${avatarColor}, ${avatarColor}88)`;
+}
+
+function getSparkColor(avatarColor: string): string {
+  const grad = GRADIENT_COLORS.find((g) => g.value === avatarColor);
+  if (grad) return grad.sparkColor;
+  if (avatarColor?.startsWith("linear-gradient")) {
+    const match = avatarColor.match(/#[0-9a-fA-F]{6}/);
+    return match ? match[0] : "#6366f1";
+  }
+  return avatarColor || "#6366f1";
 }
 
 const inputCls =
@@ -152,7 +238,7 @@ function getLinkedInAuthUrl(state: string) {
   return `https://www.linkedin.com/oauth/v2/authorization?${params.toString()}`;
 }
 
-// ─── Color Picker with pastels ────────────────────────────────────────────────
+// ─── Color Picker ─────────────────────────────────────────────────────────────
 function ColorPicker({
   value,
   onChange,
@@ -161,37 +247,62 @@ function ColorPicker({
   onChange: (c: string) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-3">
-      <button
-        onClick={() => onChange("")}
-        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${value === "" ? "border-foreground scale-110" : "border-border"}`}
-        title="None"
-      >
-        <X className="w-3 h-3 text-muted-foreground" />
-      </button>
-      {AVATAR_COLORS.map((c) => {
-        const p1 = c + "88";
-        const p2 = c + "44";
-        return (
-          <div key={c} className="flex flex-col items-center gap-1.5">
+    <div className="space-y-3">
+      {/* Solid colors */}
+      <div className="flex flex-wrap gap-3">
+        <button
+          onClick={() => onChange("")}
+          className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all ${value === "" ? "border-foreground scale-110" : "border-border"}`}
+          title="None"
+        >
+          <X className="w-3 h-3 text-muted-foreground" />
+        </button>
+        {AVATAR_COLORS.map((c) => {
+          const p1 = c + "88";
+          const p2 = c + "44";
+          return (
+            <div key={c} className="flex flex-col items-center gap-1.5">
+              <button
+                onClick={() => onChange(c)}
+                style={{ background: c }}
+                className={`w-8 h-8 rounded-full transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
+              />
+              <button
+                onClick={() => onChange(p1)}
+                style={{ background: p1, border: `2px solid ${c}55` }}
+                className={`w-5 h-5 rounded-full transition-all ${value === p1 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-80 hover:opacity-100"}`}
+              />
+              <button
+                onClick={() => onChange(p2)}
+                style={{ background: p2, border: `2px solid ${c}33` }}
+                className={`w-4 h-4 rounded-full transition-all ${value === p2 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-70 hover:opacity-100"}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      {/* Gradient presets */}
+      <div>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+          Gradients
+        </p>
+        <div className="flex gap-3">
+          {GRADIENT_COLORS.map((g) => (
             <button
-              onClick={() => onChange(c)}
-              style={{ background: c }}
-              className={`w-8 h-8 rounded-full transition-all ${value === c ? "ring-2 ring-offset-2 ring-offset-card ring-white scale-110" : "opacity-80 hover:opacity-100"}`}
-            />
-            <button
-              onClick={() => onChange(p1)}
-              style={{ background: p1, border: `2px solid ${c}55` }}
-              className={`w-5 h-5 rounded-full transition-all ${value === p1 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-80 hover:opacity-100"}`}
-            />
-            <button
-              onClick={() => onChange(p2)}
-              style={{ background: p2, border: `2px solid ${c}33` }}
-              className={`w-4 h-4 rounded-full transition-all ${value === p2 ? "ring-2 ring-offset-1 ring-offset-card scale-110" : "opacity-70 hover:opacity-100"}`}
-            />
-          </div>
-        );
-      })}
+              key={g.value}
+              onClick={() => onChange(g.value)}
+              title={g.label}
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl border transition-all text-xs font-medium ${value === g.value ? "border-primary/60 ring-2 ring-primary/30 scale-105" : "border-border hover:border-primary/40"}`}
+            >
+              <span
+                style={{ background: g.bg }}
+                className="w-5 h-5 rounded-full flex-shrink-0"
+              />
+              {g.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -199,6 +310,7 @@ function ColorPicker({
 // ─── Sparkline ────────────────────────────────────────────────────────────────
 function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
   if (posts.length < 2) return null;
+  const sparkColor = getSparkColor(color);
   const sorted = [...posts].sort(
     (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
   );
@@ -221,24 +333,24 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
     <svg width={W} height={H} className="overflow-visible">
       <defs>
         <linearGradient
-          id={`grad-${color.replace("#", "")}`}
+          id={`grad-${sparkColor.replace("#", "")}`}
           x1="0"
           y1="0"
           x2="0"
           y2="1"
         >
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
+          <stop offset="0%" stopColor={sparkColor} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={sparkColor} stopOpacity="0" />
         </linearGradient>
       </defs>
       <polygon
         points={areaPoints}
-        fill={`url(#grad-${color.replace("#", "")})`}
+        fill={`url(#grad-${sparkColor.replace("#", "")})`}
       />
       <polyline
         points={points}
         fill="none"
-        stroke={color}
+        stroke={sparkColor}
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -247,13 +359,220 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
         cx={points.split(" ").at(-1)?.split(",")[0]}
         cy={points.split(" ").at(-1)?.split(",")[1]}
         r="3"
-        fill={color}
+        fill={sparkColor}
       />
     </svg>
   );
 }
 
-// ─── Impressions chart ────────────────────────────────────────────────────────
+// ─── Geography Bubbles ────────────────────────────────────────────────────────
+function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
+  const allLocations: Record<string, number> = {};
+  let total = 0;
+  posts.forEach((p) => {
+    p.topLocations?.forEach((loc) => {
+      allLocations[loc.name] = (allLocations[loc.name] || 0) + loc.pct;
+      total += loc.pct;
+    });
+  });
+
+  const locations = Object.entries(allLocations)
+    .map(([name, pct]) => ({
+      name,
+      pct: Math.round(
+        pct / Math.max(posts.filter((p) => p.topLocations?.length).length, 1),
+      ),
+    }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
+
+  if (!locations.length) {
+    return (
+      <div className="flex items-center justify-center h-28 text-xs text-muted-foreground italic text-center px-4">
+        <div>
+          <MapPin className="w-5 h-5 mx-auto mb-2 opacity-30" />
+          No geography data — import from LinkedIn analytics to see this
+        </div>
+      </div>
+    );
+  }
+
+  const maxPct = locations[0].pct;
+  const bubblePositions = [
+    { left: "48%", top: "48%" },
+    { left: "22%", top: "38%" },
+    { left: "72%", top: "32%" },
+    { left: "30%", top: "68%" },
+    { left: "68%", top: "65%" },
+  ];
+
+  return (
+    <div className="relative h-32 w-full overflow-hidden">
+      {locations.map((loc, i) => {
+        const size = 36 + (loc.pct / maxPct) * 64;
+        const pos = bubblePositions[i] ?? { left: "50%", top: "50%" };
+        const color = GEO_BUBBLE_COLORS[i % GEO_BUBBLE_COLORS.length];
+        return (
+          <motion.div
+            key={loc.name}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{
+              delay: i * 0.08,
+              type: "spring",
+              stiffness: 200,
+              damping: 15,
+            }}
+            style={{
+              position: "absolute",
+              left: pos.left,
+              top: pos.top,
+              transform: "translate(-50%, -50%)",
+              width: size,
+              height: size,
+              background: color + "28",
+              border: `1.5px solid ${color}55`,
+              borderRadius: "50%",
+            }}
+            className="flex flex-col items-center justify-center cursor-default"
+            title={`${loc.name}: ~${loc.pct}%`}
+          >
+            <span
+              className="text-[10px] font-bold leading-none"
+              style={{ color }}
+            >
+              {loc.pct}%
+            </span>
+            <span className="text-[8px] text-muted-foreground text-center px-1 leading-tight mt-0.5 truncate max-w-full">
+              {loc.name}
+            </span>
+          </motion.div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Job Function Bars ────────────────────────────────────────────────────────
+function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
+  const allFunctions: Record<string, number> = {};
+  const postCount = posts.filter((p) => p.topJobFunctions?.length).length;
+  posts.forEach((p) => {
+    p.topJobFunctions?.forEach((fn) => {
+      allFunctions[fn.name] = (allFunctions[fn.name] || 0) + fn.pct;
+    });
+  });
+
+  const functions = Object.entries(allFunctions)
+    .map(([name, pct]) => ({
+      name,
+      pct: Math.round(pct / Math.max(postCount, 1)),
+    }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 5);
+
+  if (!functions.length) {
+    return (
+      <div className="flex items-center justify-center h-20 text-xs text-muted-foreground italic text-center">
+        <div>
+          <Briefcase className="w-4 h-4 mx-auto mb-1.5 opacity-30" />
+          No job function data yet
+        </div>
+      </div>
+    );
+  }
+
+  const maxPct = functions[0].pct;
+
+  return (
+    <div className="space-y-2">
+      {functions.map((fn, i) => (
+        <div key={fn.name} className="flex items-center gap-2.5">
+          <span className="text-[10px] text-muted-foreground w-20 truncate shrink-0 text-right">
+            {fn.name}
+          </span>
+          <div className="flex-1 h-4 rounded-full bg-muted/60 overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${(fn.pct / maxPct) * 100}%` }}
+              transition={{ delay: i * 0.06, duration: 0.6, ease: "easeOut" }}
+              className="h-full rounded-full"
+              style={{
+                background: `linear-gradient(90deg, hsl(var(--primary)), hsl(var(--primary)/0.5))`,
+              }}
+            />
+          </div>
+          <span className="text-[10px] font-bold text-foreground w-6 text-right flex-shrink-0">
+            {fn.pct}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Post Timing Bars ─────────────────────────────────────────────────────────
+function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
+  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const counts = new Array(7).fill(0);
+  posts.forEach((p) => {
+    try {
+      const d = new Date(p.date);
+      if (!isNaN(d.getTime())) counts[(d.getDay() + 6) % 7]++;
+    } catch {}
+  });
+  const max = Math.max(...counts, 1);
+  if (posts.length < 2) {
+    return (
+      <div className="text-xs text-muted-foreground italic flex items-center gap-1.5">
+        <Clock className="w-3.5 h-3.5 opacity-40" /> Not enough posts to show
+        timing
+      </div>
+    );
+  }
+  return (
+    <div className="flex items-end gap-1 h-14">
+      {days.map((day, i) => {
+        const heightPct = Math.max((counts[i] / max) * 100, 6);
+        const isActive = counts[i] > 0;
+        const bars = 3;
+        return (
+          <div key={day} className="flex flex-col items-center gap-1 flex-1">
+            <div
+              className="w-full flex flex-col-reverse gap-0.5"
+              style={{ height: "44px", justifyContent: "flex-start" }}
+            >
+              {Array.from({ length: bars }).map((_, b) => {
+                const threshold = ((b + 1) / bars) * 100;
+                const filled = heightPct >= threshold;
+                return (
+                  <motion.div
+                    key={b}
+                    initial={{ opacity: 0, scaleY: 0 }}
+                    animate={{ opacity: 1, scaleY: 1 }}
+                    transition={{ delay: i * 0.04 + b * 0.04 }}
+                    className="w-full rounded-sm"
+                    style={{
+                      height: "12px",
+                      background: filled
+                        ? isActive
+                          ? `linear-gradient(to top, hsl(var(--primary)), hsl(var(--primary)/0.7))`
+                          : "hsl(var(--muted))"
+                        : "hsl(var(--muted)/0.3)",
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <span className="text-[9px] text-muted-foreground">{day}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Impressions Chart ────────────────────────────────────────────────────────
 function ImpressionsLineChart({
   posts,
   color,
@@ -263,6 +582,10 @@ function ImpressionsLineChart({
 }) {
   const [period, setPeriod] = useState<"all" | "30d" | "90d">("all");
   const [showEngagement, setShowEngagement] = useState(false);
+  const [impressionColor, setImpressionColor] = useState("#1a6fff");
+  const [engagementColor, setEngagementColor] = useState("#10b981");
+  const impressionColorRef = useRef<HTMLInputElement>(null);
+  const engagementColorRef = useRef<HTMLInputElement>(null);
 
   const filtered = posts
     .filter((p) => {
@@ -295,10 +618,52 @@ function ImpressionsLineChart({
           Track impressions over time
         </p>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Clickable color dots */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => impressionColorRef.current?.click()}
+              title="Change impressions color"
+              style={{ background: impressionColor }}
+              className="w-3 h-3 rounded-full border border-white/30 hover:scale-125 transition-transform"
+            />
+            <input
+              ref={impressionColorRef}
+              type="color"
+              value={impressionColor}
+              onChange={(e) => setImpressionColor(e.target.value)}
+              className="sr-only"
+            />
+            <span className="text-[10px] text-muted-foreground">Impr.</span>
+          </div>
           <button
             onClick={() => setShowEngagement(!showEngagement)}
-            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500" : "border-border text-muted-foreground hover:bg-muted"}`}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${showEngagement ? "border-current bg-current/10" : "border-border text-muted-foreground hover:bg-muted"}`}
+            style={
+              showEngagement
+                ? {
+                    color: engagementColor,
+                    borderColor: engagementColor + "60",
+                  }
+                : {}
+            }
           >
+            {showEngagement && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  engagementColorRef.current?.click();
+                }}
+                style={{ background: engagementColor }}
+                className="w-3 h-3 rounded-full border border-white/30 hover:scale-125 transition-transform"
+              />
+            )}
+            <input
+              ref={engagementColorRef}
+              type="color"
+              value={engagementColor}
+              onChange={(e) => setEngagementColor(e.target.value)}
+              className="sr-only"
+            />
             {showEngagement ? "✓" : "+"} Engagement
           </button>
           {(["30d", "90d", "all"] as const).map((p) => (
@@ -315,7 +680,12 @@ function ImpressionsLineChart({
       <ResponsiveContainer width="100%" height={160}>
         <LineChart
           data={filtered}
-          margin={{ top: 4, right: 4, left: -24, bottom: 0 }}
+          margin={{
+            top: 4,
+            right: showEngagement ? 8 : 4,
+            left: -24,
+            bottom: 0,
+          }}
         >
           <CartesianGrid
             strokeDasharray="3 3"
@@ -329,11 +699,22 @@ function ImpressionsLineChart({
             axisLine={false}
           />
           <YAxis
+            yAxisId="left"
             tickFormatter={fmtNum}
             tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
             tickLine={false}
             axisLine={false}
           />
+          {showEngagement && (
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tickFormatter={fmtNum}
+              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tickLine={false}
+              axisLine={false}
+            />
+          )}
           <Tooltip
             content={({ active, payload }) => {
               if (!active || !payload?.length) return null;
@@ -344,11 +725,11 @@ function ImpressionsLineChart({
                     {d.title}
                   </p>
                   <p className="text-muted-foreground">{d.date}</p>
-                  <p style={{ color: "#1a6fff" }} className="font-bold">
+                  <p style={{ color: impressionColor }} className="font-bold">
                     {fmtNum(d.views)} impressions
                   </p>
                   {showEngagement && (
-                    <p className="text-emerald-500 font-bold">
+                    <p style={{ color: engagementColor }} className="font-bold">
                       {fmtNum(d.engagement)} engagement
                     </p>
                   )}
@@ -358,21 +739,23 @@ function ImpressionsLineChart({
           />
           {showEngagement && <Legend wrapperStyle={{ fontSize: 10 }} />}
           <Line
+            yAxisId="left"
             type="monotone"
             dataKey="views"
-            stroke="#1a6fff"
+            stroke={impressionColor}
             strokeWidth={2.5}
-            dot={{ r: 3, fill: "#1a6fff" }}
+            dot={{ r: 3, fill: impressionColor }}
             activeDot={{ r: 5 }}
             name="Impressions"
           />
           {showEngagement && (
             <Line
+              yAxisId="right"
               type="monotone"
               dataKey="engagement"
-              stroke="#10b981"
+              stroke={engagementColor}
               strokeWidth={2}
-              dot={{ r: 3, fill: "#10b981" }}
+              dot={{ r: 3, fill: engagementColor }}
               activeDot={{ r: 4 }}
               name="Engagement"
             />
@@ -472,7 +855,7 @@ function AccountModal({
           {/* Profile picture */}
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 block">
-              Profile Picture
+              Profile Picture / Logo
             </label>
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-muted flex items-center justify-center border border-border">
@@ -485,18 +868,18 @@ function AccountModal({
                 ) : (
                   <span
                     className="text-lg font-bold"
-                    style={{ color: avatarColor || "#888" }}
+                    style={{ color: getSparkColor(avatarColor) || "#888" }}
                   >
                     {initials(name || "?")}
                   </span>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <button
                   onClick={() => fileRef.current?.click()}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-xs font-medium hover:bg-muted transition-colors"
                 >
-                  <Upload className="w-3.5 h-3.5" /> Upload Photo
+                  <Upload className="w-3.5 h-3.5" /> Upload Photo / Logo
                 </button>
                 {avatarUrl && (
                   <button
@@ -543,6 +926,7 @@ function AccountModal({
           {type === "company" && (
             <div className="px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-600 dark:text-amber-400">
               💡 Company pages can't be connected via OAuth — fill in manually.
+              Upload your company logo above.
             </div>
           )}
 
@@ -637,6 +1021,36 @@ function AccountModal({
   );
 }
 
+// ─── Tags Picker ──────────────────────────────────────────────────────────────
+function TagsPicker({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (t: string[]) => void;
+}) {
+  const toggle = (id: string) =>
+    onChange(
+      value.includes(id) ? value.filter((t) => t !== id) : [...value, id],
+    );
+  return (
+    <div className="flex flex-wrap gap-2">
+      {CONTENT_TAGS.map((tag) => {
+        const active = value.includes(tag.id);
+        return (
+          <button
+            key={tag.id}
+            onClick={() => toggle(tag.id)}
+            className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${active ? tag.color + " scale-105" : "bg-muted/50 text-muted-foreground border border-transparent hover:bg-muted"}`}
+          >
+            {tag.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Add Post Modal ───────────────────────────────────────────────────────────
 function AddPostModal({
   onClose,
@@ -651,7 +1065,6 @@ function AddPostModal({
   const [importPreview, setImportPreview] = useState<LinkedInPost[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // manual fields
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [postUrl, setPostUrl] = useState("");
@@ -665,10 +1078,10 @@ function AddPostModal({
   const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
   const [reactionIcon, setReactionIcon] = useState("none");
   const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [tags, setTags] = useState<string[]>([]);
   const selectedReaction =
     REACTION_ICONS.find((r) => r.id === reactionIcon) ?? REACTION_ICONS[0];
 
-  // import: per-post title editing
   const [importTitles, setImportTitles] = useState<Record<string, string>>({});
 
   const handleManualSave = async () => {
@@ -689,6 +1102,7 @@ function AddPostModal({
         followersGained: parseInt(followersGained) || 0,
         date,
         reactionIcon,
+        tags,
       },
     ]);
     onClose();
@@ -721,15 +1135,21 @@ function AddPostModal({
               reposts = 0,
               saves = 0,
               followersGained = 0;
-            let postDate = "";
+            let postDate = "",
+              publishTime = "";
+            const topLocations: Array<{ name: string; pct: number }> = [];
+            const topJobFunctions: Array<{ name: string; pct: number }> = [];
             let j = i + 1;
-            while (j < rows.length && j < i + 20) {
+            while (j < rows.length && j < i + 40) {
               const k = String(rows[j]?.[0] || "").trim();
               const v =
                 parseInt(String(rows[j]?.[1] || "0").replace(/,/g, "")) || 0;
-              if (k === "Post Date")
-                postDate = String(rows[j]?.[1] || "").trim();
-              else if (k === "Impressions") impressions = v;
+              const sv = String(rows[j]?.[1] || "").trim();
+              if (k === "Post Date") {
+                postDate = sv;
+              } else if (k === "Publish time") {
+                publishTime = sv;
+              } else if (k === "Impressions") impressions = v;
               else if (k === "Members reached") membersReached = v;
               else if (k === "Reactions") reactions = v;
               else if (k === "Comments") comments = v;
@@ -737,7 +1157,22 @@ function AddPostModal({
               else if (k === "Saves") saves = v;
               else if (k === "Followers gained from this post")
                 followersGained = v;
-              else if (k === "Post URL" && j !== i) break;
+              else if (k.startsWith("Top location") || k === "Location") {
+                const pct =
+                  parseInt(
+                    String(rows[j]?.[2] || "0").replace(/[^0-9]/g, ""),
+                  ) || v;
+                if (sv && pct > 0) topLocations.push({ name: sv, pct });
+              } else if (
+                k.startsWith("Top job function") ||
+                k === "Job function"
+              ) {
+                const pct =
+                  parseInt(
+                    String(rows[j]?.[2] || "0").replace(/[^0-9]/g, ""),
+                  ) || v;
+                if (sv && pct > 0) topJobFunctions.push({ name: sv, pct });
+              } else if (k === "Post URL" && j !== i) break;
               j++;
             }
             let formattedDate = new Date().toISOString().split("T")[0];
@@ -760,7 +1195,13 @@ function AddPostModal({
               membersReached,
               followersGained,
               date: formattedDate,
+              publishTime,
               reactionIcon: "none",
+              tags: [],
+              topLocations: topLocations.length ? topLocations : undefined,
+              topJobFunctions: topJobFunctions.length
+                ? topJobFunctions
+                : undefined,
             });
             i = j;
           } else {
@@ -791,7 +1232,6 @@ function AddPostModal({
   const handleImportSave = async () => {
     if (!importPreview.length) return;
     setSaving(true);
-    // apply custom titles where provided
     const finalPosts = importPreview.map((p) => ({
       ...p,
       title: importTitles[p.id]?.trim() || p.title,
@@ -893,7 +1333,15 @@ function AddPostModal({
               </div>
             </details>
 
-            {/* Reaction icon picker */}
+            {/* Tags */}
+            <div>
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
+                <Tag className="w-3 h-3" /> Tags
+              </label>
+              <TagsPicker value={tags} onChange={setTags} />
+            </div>
+
+            {/* Reaction icon */}
             <div>
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
                 Reaction Icon
@@ -1042,12 +1490,12 @@ function AddPostModal({
               </p>
             )}
             {importPreview.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-foreground">
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-foreground">
                   Found {importPreview.length} post
                   {importPreview.length > 1 ? "s" : ""} — add a name for each:
                 </p>
-                <div className="max-h-52 overflow-y-auto space-y-2">
+                <div className="max-h-52 overflow-y-auto space-y-3">
                   {importPreview.map((p) => (
                     <div
                       key={p.id}
@@ -1074,7 +1522,11 @@ function AddPostModal({
                           </a>
                         </div>
                       )}
-                      <div className="px-3 pb-2.5">
+                      {/* BIGGER title input */}
+                      <div className="px-3 pb-3">
+                        <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                          Post Name / Topic
+                        </label>
                         <input
                           value={importTitles[p.id] ?? ""}
                           onChange={(e) =>
@@ -1083,8 +1535,8 @@ function AddPostModal({
                               [p.id]: e.target.value,
                             }))
                           }
-                          placeholder="Post name / topic (optional)"
-                          className="w-full px-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+                          placeholder="e.g. 5 AI Trends for Insurance Brokers"
+                          className="w-full px-3 py-2.5 rounded-xl bg-card border border-primary/20 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2 focus:ring-primary/40 font-medium"
                         />
                       </div>
                     </div>
@@ -1148,15 +1600,23 @@ function EditPostModal({
 }) {
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(post.title);
+  const [content, setContent] = useState(post.content ?? "");
   const [postUrl, setPostUrl] = useState(post.postUrl ?? "");
   const [views, setViews] = useState(String(post.views));
   const [likes, setLikes] = useState(String(post.likes));
   const [comments, setComments] = useState(String(post.comments));
   const [reposts, setReposts] = useState(String(post.reposts));
   const [saves, setSaves] = useState(String(post.saves ?? ""));
+  const [membersReached, setMembersReached] = useState(
+    String(post.membersReached ?? ""),
+  );
+  const [followersGained, setFollowersGained] = useState(
+    String(post.followersGained ?? ""),
+  );
   const [date, setDate] = useState(post.date);
   const [reactionIcon, setReactionIcon] = useState(post.reactionIcon ?? "none");
   const [showPicker, setShowPicker] = useState(false);
+  const [tags, setTags] = useState<string[]>(post.tags ?? []);
   const selectedReaction =
     REACTION_ICONS.find((r) => r.id === reactionIcon) ?? REACTION_ICONS[0];
 
@@ -1165,14 +1625,18 @@ function EditPostModal({
     await onSave({
       ...post,
       title: title.trim(),
+      content,
       postUrl,
       views: parseInt(views) || 0,
       likes: parseInt(likes) || 0,
       comments: parseInt(comments) || 0,
       reposts: parseInt(reposts) || 0,
       saves: parseInt(saves) || 0,
+      membersReached: parseInt(membersReached) || 0,
+      followersGained: parseInt(followersGained) || 0,
       date,
       reactionIcon,
+      tags,
     });
     onClose();
   };
@@ -1208,6 +1672,18 @@ function EditPostModal({
           </div>
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
+              Post Content
+            </label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              rows={3}
+              placeholder="Post content..."
+              className={inputCls + " resize-none"}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
               Post URL
             </label>
             <input
@@ -1216,6 +1692,13 @@ function EditPostModal({
               placeholder="https://linkedin.com/..."
               className={inputCls}
             />
+          </div>
+          {/* Tags */}
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
+              <Tag className="w-3 h-3" /> Tags
+            </label>
+            <TagsPicker value={tags} onChange={setTags} />
           </div>
           <div>
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
@@ -1265,6 +1748,8 @@ function EditPostModal({
               ["Comments 💬", comments, setComments],
               ["Reposts 🔁", reposts, setReposts],
               ["Saves", saves, setSaves],
+              ["Members Reached", membersReached, setMembersReached],
+              ["Followers Gained", followersGained, setFollowersGained],
             ].map(([label, val, set]: any) => (
               <div key={label}>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 block">
@@ -1346,9 +1831,27 @@ function PostDetailCard({
                 {reaction.svg}
               </span>
             )}
-            <h3 className="font-bold text-sm text-foreground line-clamp-2">
-              {post.title}
-            </h3>
+            <div className="min-w-0">
+              <h3 className="font-bold text-sm text-foreground line-clamp-2">
+                {post.title}
+              </h3>
+              {/* Tags */}
+              {post.tags && post.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {post.tags.map((tid) => {
+                    const tag = CONTENT_TAGS.find((t) => t.id === tid);
+                    return tag ? (
+                      <span
+                        key={tid}
+                        className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold ${tag.color}`}
+                      >
+                        {tag.label}
+                      </span>
+                    ) : null;
+                  })}
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
             <button
@@ -1366,7 +1869,18 @@ function PostDetailCard({
             </button>
           </div>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+          {/* Post content */}
+          {post.content && (
+            <div className="p-3 rounded-xl bg-muted/40 border border-border/50">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
+                Post Content
+              </p>
+              <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+                {post.content}
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2.5">
             {[
               {
@@ -1460,6 +1974,9 @@ function AccountCard({
       ? account.posts.reduce((b, p) => (p.views > b.views ? p : b))
       : null;
 
+  const avatarBg = getAvatarBg(account.avatarColor);
+  const sparkColor = getSparkColor(account.avatarColor);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 16 }}
@@ -1481,9 +1998,7 @@ function AccountCard({
             ) : (
               <div
                 className="w-12 h-12 rounded-2xl flex items-center justify-center text-white font-bold text-base flex-shrink-0 shadow-sm"
-                style={{
-                  background: `linear-gradient(135deg,${account.avatarColor || "#6366f1"},${(account.avatarColor || "#6366f1") + "99"})`,
-                }}
+                style={{ background: avatarBg }}
               >
                 {account.avatarInitials}
               </div>
@@ -1586,10 +2101,7 @@ function AccountCard({
                 <p className="text-[10px] text-muted-foreground mb-1">
                   Impressions trend
                 </p>
-                <Sparkline
-                  posts={account.posts}
-                  color={account.avatarColor || "#6366f1"}
-                />
+                <Sparkline posts={account.posts} color={sparkColor} />
               </>
             ) : (
               <p className="text-[10px] text-muted-foreground italic">
@@ -1635,6 +2147,54 @@ function AccountCard({
             </div>
           </div>
         )}
+
+        {/* ── Expanded section: only when selected ── */}
+        <AnimatePresence>
+          {isSelected && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.35, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 pt-4 border-t border-border/40 space-y-5">
+                {/* Geography */}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <MapPin className="w-3.5 h-3.5 text-primary" />
+                    <p className="text-xs font-semibold text-foreground">
+                      Geography Distribution
+                    </p>
+                  </div>
+                  <GeoBubbles posts={account.posts ?? []} />
+                </div>
+
+                {/* Job Functions */}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Briefcase className="w-3.5 h-3.5 text-primary" />
+                    <p className="text-xs font-semibold text-foreground">
+                      Audience by Job Function
+                    </p>
+                  </div>
+                  <JobFunctionBars posts={account.posts ?? []} />
+                </div>
+
+                {/* Post timing */}
+                <div>
+                  <div className="flex items-center gap-1.5 mb-2">
+                    <Clock className="w-3.5 h-3.5 text-primary" />
+                    <p className="text-xs font-semibold text-foreground">
+                      Avg Post Day
+                    </p>
+                  </div>
+                  <PostTimingDisplay posts={account.posts ?? []} />
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -1711,7 +2271,7 @@ function PostsTable({
             ) : (
               <div
                 className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold"
-                style={{ background: account.avatarColor || "#6366f1" }}
+                style={{ background: getAvatarBg(account.avatarColor) }}
               >
                 {account.avatarInitials}
               </div>
@@ -1758,13 +2318,37 @@ function PostsTable({
                     />
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-                    <SortBtn k="likes" label="👍" />
+                    <SortBtn
+                      k="likes"
+                      label={
+                        <span className="flex items-center gap-1">
+                          <Heart className="w-3 h-3" />
+                          React
+                        </span>
+                      }
+                    />
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-                    <SortBtn k="comments" label="💬" />
+                    <SortBtn
+                      k="comments"
+                      label={
+                        <span className="flex items-center gap-1">
+                          <MessageSquare className="w-3 h-3" />
+                          Cmts
+                        </span>
+                      }
+                    />
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-center">
-                    <SortBtn k="reposts" label="🔁" />
+                    <SortBtn
+                      k="reposts"
+                      label={
+                        <span className="flex items-center gap-1">
+                          <Repeat2 className="w-3 h-3" />
+                          Rpts
+                        </span>
+                      }
+                    />
                   </th>
                   <th className="px-3 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">
                     <SortBtn
@@ -1795,9 +2379,9 @@ function PostsTable({
                             ? "🔥"
                             : ""}
                       </td>
-                      <td className="px-4 py-3.5 max-w-[200px]">
+                      <td className="px-4 py-3.5 max-w-[220px]">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {isTop && reaction?.id === "none" && (
                               <Flame className="w-3 h-3 text-orange-400 flex-shrink-0" />
                             )}
@@ -1805,6 +2389,24 @@ function PostsTable({
                               {post.title}
                             </p>
                           </div>
+                          {/* Tags in table */}
+                          {post.tags && post.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {post.tags.map((tid) => {
+                                const tag = CONTENT_TAGS.find(
+                                  (t) => t.id === tid,
+                                );
+                                return tag ? (
+                                  <span
+                                    key={tid}
+                                    className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${tag.color}`}
+                                  >
+                                    {tag.label}
+                                  </span>
+                                ) : null;
+                              })}
+                            </div>
+                          )}
                           {post.postUrl && (
                             <a
                               href={post.postUrl}
@@ -2391,7 +2993,7 @@ export default function LinkedInPage() {
                   <div
                     className="w-8 h-8 rounded-xl flex items-center justify-center text-white text-xs font-bold"
                     style={{
-                      background: selectedAccount.avatarColor || "#6366f1",
+                      background: getAvatarBg(selectedAccount.avatarColor),
                     }}
                   >
                     {selectedAccount.avatarInitials}
