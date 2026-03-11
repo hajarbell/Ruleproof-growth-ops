@@ -12,6 +12,8 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { useAuth, MemberRole } from "@/contexts/AuthContext";
+import { collection, query, where, getDocs, addDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 const ROLE_INFO = {
   admin: {
@@ -51,15 +53,23 @@ export default function InvitePage() {
 
   const roleInfo = ROLE_INFO[role] ?? ROLE_INFO.guest;
 
-  const doJoin = async () => {
+  // Accept an optional explicit user so we can call this right after
+  // signInWithGoogle() without waiting for React state to update
+  const doJoin = async (explicitUser?: typeof user) => {
     if (!token) return;
+    const activeUser = explicitUser ?? user;
+    if (!activeUser) {
+      setErrorMsg("Not logged in");
+      setStatus("error");
+      return;
+    }
     setStatus("joining");
     try {
       const result = await joinWorkspaceByToken(token, role);
       setWorkspaceName(result.workspaceName);
       setStatus("success");
 
-      // Notify admins — write to the workspace's notifications subcollection
+      // Notify admins
       try {
         const q = query(
           collection(db, "workspaces"),
@@ -68,7 +78,7 @@ export default function InvitePage() {
         const snap = await getDocs(q);
         if (!snap.empty) {
           const wsId = snap.docs[0].id;
-          const name = user?.displayName || user?.email || "Someone";
+          const name = activeUser.displayName || activeUser.email || "Someone";
           await addDoc(collection(db, "workspaces", wsId, "notifications"), {
             type: "member_joined",
             message: `${name} joined the workspace as ${result.role}.`,
@@ -86,15 +96,18 @@ export default function InvitePage() {
     }
   };
 
+  // Auto-join if already logged in
   useEffect(() => {
-    if (user && status === "idle") doJoin();
+    if (user && status === "idle") doJoin(user);
   }, [user]);
 
   const handleGoogle = async () => {
     try {
       setStatus("joining");
-      await signInWithGoogle();
-      await doJoin();
+      // signInWithGoogle should return the Firebase user — pass it directly
+      // so we don't rely on stale React state
+      const loggedInUser = await signInWithGoogle();
+      await doJoin(loggedInUser ?? undefined);
     } catch {
       setErrorMsg("Sign-in failed. Please try again.");
       setStatus("error");
@@ -126,7 +139,6 @@ export default function InvitePage() {
                 You're joining <strong>RuProof Growth OS</strong> as:
               </p>
 
-              {/* Role badge */}
               <div
                 className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${roleInfo.bg} border border-border mb-6`}
               >
