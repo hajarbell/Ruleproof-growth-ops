@@ -1446,6 +1446,11 @@ function AddPostModal({
   const [saving, setSaving] = useState(false);
   const [importError, setImportError] = useState("");
   const [importPreview, setImportPreview] = useState<LinkedInPost[]>([]);
+  const [weeklyImportMeta, setWeeklyImportMeta] = useState<{
+    totalFollowers: number;
+    totalFollGained: number;
+    dateRange: string;
+  } | null>(null);
   const [importTitles, setImportTitles] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
@@ -1787,54 +1792,84 @@ function AddPostModal({
           }
         }
 
-        // ── TOP POSTS: build URL lookup keyed by date ─────────────────────
-        // We match posts by date: same date in ENGAGEMENT = same post URL
-        // If a date has multiple posts (rare), we take the highest-impression one
-        const urlByDate: Record<string, string> = {};
+        // ── TOP POSTS: single source of truth for all post data ──────────
+        // LEFT cols (0-2):  URL | publish date | Engagements  (ranked by engagement)
+        // RIGHT cols (4-6): URL | publish date | Impressions  (ranked by impressions)
+        // Strategy: merge BOTH sides by URL to get full picture per post.
+        // Engagements & impressions in TOP POSTS are per-post, accurate.
+        // ENGAGEMENT tab only has daily totals — NOT used for per-post data.
+        const postMap: Record<
+          string,
+          {
+            url: string;
+            date: string;
+            engagements: number;
+            impressions: number;
+          }
+        > = {};
         const topPostsIdx = sheetNames.indexOf("TOP POSTS");
         if (topPostsIdx >= 0) {
           const tpRows: any[][] = XLSX.utils.sheet_to_json(
             wb.Sheets[wb.SheetNames[topPostsIdx]],
             { header: 1 },
           );
-          // Collect all URL+date combos from both left (engagement) and right (impression) sides
-          const allPostEntries: Array<{
-            url: string;
-            date: string;
-            impressions: number;
-            engagements: number;
-          }> = [];
           for (const row of tpRows) {
+            // Left side: URL + date + engagements
             const urlL = String(row?.[0] || "").trim();
             const dateL = row?.[1];
             const engL = row?.[2];
-            if (urlL.startsWith("http") && dateL)
-              allPostEntries.push({
-                url: urlL,
-                date: fmtDate(dateL),
-                engagements: parseNum(engL),
-                impressions: 0,
-              });
+            if (urlL.startsWith("http") && dateL) {
+              if (!postMap[urlL])
+                postMap[urlL] = {
+                  url: urlL,
+                  date: fmtDate(dateL),
+                  engagements: 0,
+                  impressions: 0,
+                };
+              postMap[urlL].engagements = Math.max(
+                postMap[urlL].engagements,
+                parseNum(engL),
+              );
+            }
+            // Right side: URL + date + impressions
             const urlR = String(row?.[4] || "").trim();
             const dateR = row?.[5];
             const impR = row?.[6];
             if (urlR.startsWith("http") && dateR) {
-              const ex = allPostEntries.find((e) => e.url === urlR);
-              if (ex) ex.impressions = parseNum(impR);
-              else
-                allPostEntries.push({
+              if (!postMap[urlR])
+                postMap[urlR] = {
                   url: urlR,
                   date: fmtDate(dateR),
                   engagements: 0,
-                  impressions: parseNum(impR),
-                });
+                  impressions: 0,
+                };
+              postMap[urlR].impressions = Math.max(
+                postMap[urlR].impressions,
+                parseNum(impR),
+              );
             }
           }
-          // Build date → url map (prefer higher impressions if multiple on same date)
-          for (const entry of allPostEntries) {
-            if (!urlByDate[entry.date] || entry.impressions > 0)
-              urlByDate[entry.date] = entry.url;
-          }
+        }
+
+        if (Object.keys(postMap).length === 0) {
+          setImportError(
+            "No post data found in TOP POSTS sheet. Make sure you're uploading a LinkedIn Analytics export with a 'TOP POSTS' sheet.",
+          );
+          return;
+        }
+
+        // ── Data integrity check: warn if impressions look wrong ──────────
+        const hasImpressions = Object.values(postMap).some(
+          (p) => p.impressions > 0,
+        );
+        const hasEngagements = Object.values(postMap).some(
+          (p) => p.engagements > 0,
+        );
+        if (!hasImpressions && !hasEngagements) {
+          setImportError(
+            "Could not parse any impression or engagement data. The file format may be unsupported.",
+          );
+          return;
         }
 
         // ── DEMOGRAPHICS ──────────────────────────────────────────────────
@@ -1851,123 +1886,24 @@ function AddPostModal({
               topCompanySizes: [],
             };
 
-        // ── Build one post per day that had activity ───────────────────────
-        // Use ENGAGEMENT as the primary source (accurate impressions + total engagements)
-        // Cross-ref TOP POSTS by date to get the URL for that day's post
-        const posts: LinkedInPost[] = [];
-
-        // Filter to days that had actual post activity (impressions > 0 AND
-        // there is a matching post URL for that day)
-        const activeDays = dailyData.filter(
-          (d) => d.impressions > 0 && urlByDate[d.date],
-        );
-
-        if (activeDays.length > 0) {
-          activeDays.forEach((day, i) => {
-            const pid = `post_${Date.now()}_${i}`;
-            const follOnDay = dailyFollowers[day.date] || 0;
-            posts.push({
-              id: pid,
-              title: `LinkedIn Post — ${day.date}`,
-              content: "",
-              postUrl: urlByDate[day.date] || "",
-              // engagements from ENGAGEMENT tab = sum of reactions+comments+reposts+saves
-              // We store as likes with isWeeklyAggregate flag so UI can show "sum" badge
-              likes: day.engagements,
-              comments: 0,
-              reposts: 0,
-              views: day.impressions,
-              saves: 0,
-              membersReached: 0,
-              followersGained: follOnDay,
-              profileViewers: 0,
-              sends: 0,
-              date: day.date,
-              publishTime: "",
-              reactionIcon: "none",
-              tags: [],
-              isWeeklyAggregate: true,
-              ...(weekDemo.topLocations.length
-                ? { topLocations: weekDemo.topLocations }
-                : {}),
-              ...(weekDemo.topJobFunctions.length
-                ? { topJobFunctions: weekDemo.topJobFunctions }
-                : {}),
-              ...(weekDemo.topIndustries.length
-                ? { topIndustries: weekDemo.topIndustries }
-                : {}),
-              ...(weekDemo.topSeniority.length
-                ? { topSeniority: weekDemo.topSeniority }
-                : {}),
-              ...(weekDemo.topCompanySizes.length
-                ? { topCompanySizes: weekDemo.topCompanySizes }
-                : {}),
-            });
-          });
-        } else {
-          // Fallback: no URL matches — use top posts engagements data directly
-          // (happens with older exports or date mismatches)
-          const allTopPosts: Array<{
-            url: string;
-            date: string;
-            engagements: number;
-            impressions: number;
-          }> = [];
-          const topIdx = sheetNames.indexOf("TOP POSTS");
-          if (topIdx >= 0) {
-            const tpRows: any[][] = XLSX.utils.sheet_to_json(
-              wb.Sheets[wb.SheetNames[topIdx]],
-              { header: 1 },
-            );
-            const seen = new Set<string>();
-            for (const row of tpRows) {
-              const urlL = String(row?.[0] || "").trim();
-              const dateL = row?.[1];
-              const engL = row?.[2];
-              const urlR = String(row?.[4] || "").trim();
-              const dateR = row?.[5];
-              const impR = row?.[6];
-              if (urlL.startsWith("http") && dateL && !seen.has(urlL)) {
-                seen.add(urlL);
-                allTopPosts.push({
-                  url: urlL,
-                  date: fmtDate(dateL),
-                  engagements: parseNum(engL),
-                  impressions: 0,
-                });
-              }
-              if (urlR.startsWith("http") && dateR) {
-                const ex = allTopPosts.find((e) => e.url === urlR);
-                if (ex)
-                  ex.impressions = Math.max(ex.impressions, parseNum(impR));
-                else if (!seen.has(urlR)) {
-                  seen.add(urlR);
-                  allTopPosts.push({
-                    url: urlR,
-                    date: fmtDate(dateR),
-                    engagements: 0,
-                    impressions: parseNum(impR),
-                  });
-                }
-              }
-            }
-          }
-          allTopPosts.sort(
+        // ── Build one post per unique URL ─────────────────────────────────
+        // followersByDate: followers gained on post's publish day
+        const posts: LinkedInPost[] = Object.values(postMap)
+          .sort(
             (a, b) =>
               b.impressions - a.impressions || b.engagements - a.engagements,
-          );
-          allTopPosts.forEach((p, i) => {
-            const pid = `post_${Date.now()}_${i}`;
+          )
+          .map((p, i) => {
             const follOnDay = dailyFollowers[p.date] || 0;
-            posts.push({
-              id: pid,
+            return {
+              id: `post_${Date.now()}_${i}`,
               title: `LinkedIn Post — ${p.date}`,
               content: "",
               postUrl: p.url,
-              likes: p.engagements,
+              likes: p.engagements, // from TOP POSTS left col = total engagements per post
               comments: 0,
               reposts: 0,
-              views: p.impressions,
+              views: p.impressions, // from TOP POSTS right col = impressions per post
               saves: 0,
               membersReached: 0,
               followersGained: follOnDay,
@@ -1977,7 +1913,7 @@ function AddPostModal({
               publishTime: "",
               reactionIcon: "none",
               tags: [],
-              isWeeklyAggregate: true,
+              isWeeklyAggregate: true, // engagements = sum (reactions+comments+reposts)
               ...(weekDemo.topLocations.length
                 ? { topLocations: weekDemo.topLocations }
                 : {}),
@@ -1993,9 +1929,8 @@ function AddPostModal({
               ...(weekDemo.topCompanySizes.length
                 ? { topCompanySizes: weekDemo.topCompanySizes }
                 : {}),
-            });
+            };
           });
-        }
 
         if (posts.length === 0) {
           setImportError("No post data found in this export.");
@@ -2003,16 +1938,15 @@ function AddPostModal({
         }
 
         // ── Store totalFollowers + weeklyGrowth for account update ────────
-        // Pass these as metadata so handleAddPosts can update the card
         const totalFollGained = Object.values(dailyFollowers).reduce(
           (s, v) => s + v,
           0,
         );
-        (posts as any).__weeklyMeta = {
-          totalFollowers,
-          totalFollGained,
-          dateRange,
-        };
+        if (totalFollowers > 0) {
+          setWeeklyImportMeta({ totalFollowers, totalFollGained, dateRange });
+        } else {
+          setWeeklyImportMeta(null);
+        }
 
         const titles: Record<string, string> = {};
         posts.forEach((p) => {
@@ -2037,6 +1971,10 @@ function AddPostModal({
       ...p,
       title: importTitles[p.id]?.trim() || p.title,
     }));
+    // Attach meta so handleAddPosts can update followers
+    if (weeklyImportMeta) {
+      (finalPosts as any).__weeklyMeta = weeklyImportMeta;
+    }
     await onSave(finalPosts);
     onClose();
   };
@@ -2290,6 +2228,19 @@ function AddPostModal({
                   Found {importPreview.length} post
                   {importPreview.length > 1 ? "s" : ""} — add a name for each:
                 </p>
+                {weeklyImportMeta && (
+                  <div className="mt-2 px-3 py-2 rounded-xl bg-emerald-500/8 border border-emerald-500/20 text-xs text-emerald-400 flex items-center gap-2">
+                    <span>📊</span>
+                    <span>
+                      Followers will update to{" "}
+                      <strong>
+                        {weeklyImportMeta.totalFollowers.toLocaleString()}
+                      </strong>{" "}
+                      · <strong>+{weeklyImportMeta.totalFollGained}</strong> new
+                      followers in period
+                    </span>
+                  </div>
+                )}
                 <div className="max-h-52 overflow-y-auto space-y-3">
                   {importPreview.map((p) => (
                     <div
@@ -2776,7 +2727,7 @@ function AccountInsightsOverlay({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       >
         <motion.div
@@ -3160,7 +3111,7 @@ function AccountCard({
         e.stopPropagation();
         onExpand();
       }}
-      className={`relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-200 group ${isSelected ? "ring-2 ring-primary shadow-lg shadow-primary/10" : "hover:shadow-md hover:-translate-y-0.5"}`}
+      className={`relative rounded-2xl overflow-visible cursor-pointer transition-all duration-200 group ${isSelected ? "ring-2 ring-primary shadow-lg shadow-primary/10" : "hover:shadow-md hover:-translate-y-0.5"}`}
     >
       <div className="glass p-5">
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-[#0077b5]/60 via-[#0077b5]/20 to-transparent" />
@@ -3242,7 +3193,10 @@ function AccountCard({
             },
             {
               label: "Growth",
-              value: `${account.followersGrowth > 0 ? "+" : account.followersGrowth < 0 ? "-" : ""}${fmtNum(Math.abs(account.followersGrowth))}`,
+              value:
+                account.followersGrowth === 0
+                  ? "—"
+                  : `${account.followersGrowth > 0 ? "+" : ""}${account.followersGrowth}%`,
               icon: TrendingUp,
               positive: account.followersGrowth > 0,
               negative: account.followersGrowth < 0,
@@ -3270,7 +3224,9 @@ function AccountCard({
                 key={label}
                 className="flex flex-col gap-0.5 p-2.5 rounded-xl bg-background/60 border border-border/60"
               >
-                <Icon className="w-3 h-3 text-muted-foreground mb-0.5" />
+                <Icon
+                  className={`w-3 h-3 mb-0.5 ${positive ? "text-emerald-500" : negative ? "text-red-400" : "text-muted-foreground"}`}
+                />
                 <span
                   className={`text-sm font-bold ${positive ? "text-emerald-500" : negative ? "text-red-400" : "text-foreground"}`}
                 >
@@ -4090,7 +4046,10 @@ export default function LinkedInPage() {
               },
               {
                 label: "Growth This Month",
-                value: `${displayGrowth > 0 ? "+" : displayGrowth < 0 ? "-" : ""}${fmtNum(Math.abs(displayGrowth))}`,
+                value:
+                  displayGrowth === 0
+                    ? "—"
+                    : `${displayGrowth > 0 ? "+" : ""}${displayGrowth}%`,
                 icon: TrendingUp,
                 sub: "new followers",
                 positive: displayGrowth > 0,
@@ -4115,7 +4074,7 @@ export default function LinkedInPage() {
                     <Icon className="w-4 h-4 text-muted-foreground" />
                   </div>
                   <p
-                    className={`text-3xl font-bold tracking-tight ${positive ? "text-emerald-500" : negative ? "text-red-400" : "text-foreground"}`}
+                    className={`text-3xl font-bold tracking-tight tabular-nums ${positive ? "text-emerald-500" : negative ? "text-red-400" : "text-foreground"}`}
                   >
                     {value}
                   </p>
@@ -4297,20 +4256,11 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
 
   const maxPct = locations[0].pct;
 
-  // Centered hexagonal layout: largest bubble center, others orbit symmetrically
-  const positions = [
-    { left: "50%", top: "50%" }, // center (largest)
-    { left: "26%", top: "28%" }, // top-left
-    { left: "74%", top: "28%" }, // top-right
-    { left: "18%", top: "62%" }, // bottom-left
-    { left: "82%", top: "62%" }, // bottom-right
-    { left: "50%", top: "14%" }, // top-center
-  ];
-
+  // Use a centered flex-wrap layout so bubbles always sit in the middle
   return (
-    <div className="relative h-72 w-full rounded-xl overflow-hidden">
+    <div className="relative w-full rounded-xl overflow-hidden py-4">
       <svg
-        className="absolute inset-0 w-full h-full opacity-[0.05]"
+        className="absolute inset-0 w-full h-full opacity-[0.04]"
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
@@ -4331,71 +4281,68 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
         <rect width="100%" height="100%" fill="url(#geo-grid)" />
       </svg>
 
-      {locations.map((loc, i) => {
-        const size = Math.min(44 + (loc.pct / maxPct) * 72, 116);
-        const pos = positions[i] ?? { left: "50%", top: "50%" };
-        const color = GEO_COLORS[i % GEO_COLORS.length];
-        const isHov = hoveredIdx === i;
+      <div className="relative flex flex-wrap items-center justify-center gap-3 p-4">
+        {locations.map((loc, i) => {
+          const size = Math.min(52 + (loc.pct / maxPct) * 68, 120);
+          const color = GEO_COLORS[i % GEO_COLORS.length];
+          const isHov = hoveredIdx === i;
 
-        return (
-          <motion.div
-            key={loc.name}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: isHov ? 1.06 : 1, opacity: 1 }}
-            transition={{
-              delay: i * 0.07,
-              type: "spring",
-              stiffness: 200,
-              damping: 16,
-            }}
-            onHoverStart={() => setHoveredIdx(i)}
-            onHoverEnd={() => setHoveredIdx(null)}
-            style={{
-              position: "absolute",
-              left: pos.left,
-              top: pos.top,
-              transform: "translate(-50%,-50%)",
-              width: size,
-              height: size,
-              background: isHov ? color + "30" : color + "1a",
-              border: `1.5px solid ${color}${isHov ? "55" : "33"}`,
-              boxShadow: "none",
-              borderRadius: "50%",
-              cursor: "default",
-              zIndex: isHov ? 10 : i,
-              transition: "background 0.2s, border-color 0.2s",
-            }}
-            className="flex flex-col items-center justify-center"
-          >
-            <span
-              className="text-[12px] font-bold leading-none"
-              style={{ color }}
+          return (
+            <motion.div
+              key={loc.name}
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: isHov ? 1.07 : 1, opacity: 1 }}
+              transition={{
+                delay: i * 0.07,
+                type: "spring",
+                stiffness: 200,
+                damping: 16,
+              }}
+              onHoverStart={() => setHoveredIdx(i)}
+              onHoverEnd={() => setHoveredIdx(null)}
+              style={{
+                width: size,
+                height: size,
+                background: isHov ? color + "28" : color + "14",
+                border: `1.5px solid ${color}${isHov ? "44" : "28"}`,
+                borderRadius: "50%",
+                cursor: "default",
+                flexShrink: 0,
+                transition: "background 0.2s, border-color 0.2s",
+                position: "relative",
+              }}
+              className="flex flex-col items-center justify-center"
             >
-              {loc.pct}%
-            </span>
-            <span
-              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
-              style={{ color: color + "cc" }}
-            >
-              {loc.name}
-            </span>
-            {isHov && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
+              <span
+                className="text-[12px] font-bold leading-none"
+                style={{ color }}
               >
-                <span className="font-semibold" style={{ color }}>
-                  {loc.name}
-                </span>
-                <span className="text-muted-foreground ml-1">
-                  {loc.pct}% of audience
-                </span>
-              </motion.div>
-            )}
-          </motion.div>
-        );
-      })}
+                {loc.pct}%
+              </span>
+              <span
+                className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
+                style={{ color: color + "bb" }}
+              >
+                {loc.name}
+              </span>
+              {isHov && (
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="absolute -top-9 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20 pointer-events-none"
+                >
+                  <span className="font-semibold" style={{ color }}>
+                    {loc.name}
+                  </span>
+                  <span className="text-muted-foreground ml-1">
+                    {loc.pct}% of audience
+                  </span>
+                </motion.div>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
     </div>
   );
 }
