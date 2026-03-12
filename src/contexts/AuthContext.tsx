@@ -134,9 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsub = onSnapshot(doc(db, "workspaces", workspaceId), (snap) => {
       if (!snap.exists()) {
-        setWorkspace(null);
-        setMembers([]);
-        setMyRole(null);
+        console.warn("Workspace missing");
         setWsLoading(false);
         return;
       }
@@ -247,6 +245,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const workspaceId = await findWorkspaceId(uid);
       if (!workspaceId) {
+        const ownerSnap = await getDocs(
+          query(collection(db, "workspaces"), where("ownerId", "==", uid)),
+        );
+
+        if (!ownerSnap.empty) {
+          const wsId = ownerSnap.docs[0].id;
+
+          await setDoc(
+            doc(db, "users", uid),
+            { workspaceId: wsId },
+            { merge: true },
+          );
+
+          subscribeToWorkspace(wsId, uid);
+          return;
+        }
+
         setWsLoading(false);
         return;
       }
