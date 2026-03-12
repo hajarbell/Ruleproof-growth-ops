@@ -24,13 +24,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-// ─── Nav per role ─────────────────────────────────────────────────────────────
+// ─── Nav per role — paths MUST match routes in App.tsx exactly ───────────────
 const ALL_NAV = [
   { title: "Dashboard", path: "/", icon: LayoutDashboard },
   { title: "LinkedIn", path: "/linkedin", icon: Linkedin },
   { title: "Facebook", path: "/facebook", icon: Facebook },
-  { title: "Content Studio", path: "/content-studio", icon: PenTool },
-  { title: "Ideas Lab", path: "/ideas-lab", icon: Lightbulb },
+  { title: "Content Studio", path: "/content", icon: PenTool }, // was /content-studio ❌
+  { title: "Ideas Lab", path: "/ideas", icon: Lightbulb }, // was /ideas-lab ❌
   { title: "Scrapers", path: "/scrapers", icon: Bot },
   { title: "Leads CRM", path: "/leads", icon: UserSearch },
   { title: "Campaigns", path: "/campaigns", icon: Megaphone },
@@ -39,8 +39,8 @@ const ALL_NAV = [
   { title: "Settings", path: "/settings", icon: Settings },
 ];
 
-const GUEST_PATHS = ["/content-studio"]; // guest only sees content studio
-const VIP_HIDDEN = ["/scrapers", "/leads", "/campaigns"]; // vip sees everything except these
+const GUEST_PATHS = ["/content"];
+const VIP_HIDDEN = ["/scrapers", "/leads", "/campaigns"];
 
 function getNavItems(role: string | null) {
   if (role === "admin") return ALL_NAV;
@@ -120,7 +120,7 @@ export function AppSidebar() {
   const handleLogout = async () => {
     setWsMenuOpen(false);
     await logout();
-    navigate("/logged-out");
+    navigate("/login");
   };
 
   return (
@@ -129,13 +129,12 @@ export function AppSidebar() {
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-30 overflow-hidden"
     >
-      {/* ── NOTION-STYLE WORKSPACE HEADER ── */}
+      {/* ── WORKSPACE HEADER ── */}
       <div className="relative flex-shrink-0">
         <button
           onClick={() => !collapsed && setWsMenuOpen(!wsMenuOpen)}
           className={`w-full flex items-center gap-2.5 px-3 py-3 hover:bg-sidebar-accent transition-colors ${collapsed ? "justify-center" : ""}`}
         >
-          {/* Workspace icon */}
           <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0 shadow-sm text-primary-foreground font-bold text-sm">
             {workspace?.name?.[0]?.toUpperCase() ?? "R"}
           </div>
@@ -165,158 +164,72 @@ export function AppSidebar() {
           )}
         </button>
 
-        {/* ── Workspace dropdown ── */}
+        {/* Workspace dropdown */}
         <AnimatePresence>
           {wsMenuOpen && !collapsed && (
             <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.97 }}
-              className="absolute top-full left-2 right-2 mt-1 bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden"
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              className="absolute top-full left-2 right-2 bg-card border border-border rounded-xl shadow-xl z-50 py-1 overflow-hidden"
             >
-              {/* My profile */}
-              <div className="px-3 py-3 border-b border-border">
-                <div className="flex items-center gap-2.5">
-                  <Avatar name={displayName} photo={photoURL} size={8} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">
-                      {displayName}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      {user?.email}
-                    </p>
-                  </div>
-                  {myRole && <RoleBadge role={myRole} />}
-                </div>
+              <div className="px-3 py-2 border-b border-border">
+                <p className="text-xs font-semibold text-foreground truncate">
+                  {workspace?.name}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {members.length} member{members.length !== 1 ? "s" : ""}
+                </p>
               </div>
-
-              {/* Members */}
-              {members.length > 1 && (
-                <div className="px-3 py-2 border-b border-border">
-                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                    Members ({members.length})
-                  </p>
-                  <div className="space-y-1.5">
-                    {members
-                      .filter((m) => m.uid !== user?.uid)
-                      .map((m) => (
-                        <div key={m.uid} className="flex items-center gap-2">
-                          <Avatar
-                            name={m.displayName || m.email}
-                            photo={m.photoURL}
-                            size={6}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-foreground truncate">
-                              {m.displayName || m.email}
-                            </p>
-                          </div>
-                          <RoleBadge role={m.role} />
-                        </div>
-                      ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              {myRole === "admin" && (
-                <button
-                  onClick={() => {
-                    setWsMenuOpen(false);
-                    navigate("/settings");
-                  }}
-                  className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-muted transition-colors text-left"
-                >
-                  <UserPlus className="w-4 h-4 text-primary" />
-                  <span className="text-sm font-medium text-foreground">
-                    Invite members
-                  </span>
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setWsMenuOpen(false);
+                  navigate("/settings");
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-muted transition-colors"
+              >
+                <UserPlus className="w-3.5 h-3.5" /> Invite members
+              </button>
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 hover:bg-red-500/10 transition-colors text-left border-t border-border"
+                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-muted transition-colors"
               >
-                <LogOut className="w-4 h-4 text-red-400" />
-                <span className="text-sm font-medium text-red-400">
-                  Sign out
-                </span>
+                <LogOut className="w-3.5 h-3.5" /> Sign out
               </button>
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Members avatars strip */}
-        <AnimatePresence>
-          {!collapsed && members.length > 0 && !wsMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="px-3 pb-2 flex items-center gap-1.5"
-            >
-              <div className="flex -space-x-1.5">
-                {members.slice(0, 5).map((m) => (
-                  <div
-                    key={m.uid}
-                    title={`${m.displayName || m.email} · ${m.role}`}
-                    className="ring-2 ring-sidebar rounded-full"
-                  >
-                    <Avatar
-                      name={m.displayName || m.email}
-                      photo={m.photoURL}
-                      size={5}
-                    />
-                  </div>
-                ))}
-              </div>
-              <span className="text-[10px] text-muted-foreground ml-0.5">
-                {members.length} member{members.length !== 1 ? "s" : ""}
-              </span>
-              {myRole === "admin" && (
-                <button
-                  onClick={() => {
-                    setWsMenuOpen(false);
-                    navigate("/settings");
-                  }}
-                  className="ml-auto text-[10px] text-primary hover:underline font-medium flex items-center gap-0.5"
-                >
-                  <UserPlus className="w-3 h-3" />
-                  Invite
-                </button>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="border-b border-sidebar-border" />
       </div>
 
-      {/* ── NAV ── */}
-      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+      {/* ── NAV ITEMS ── */}
+      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-0.5 px-2">
+        {navItems.map(({ title, path, icon: Icon }) => {
+          const isActive =
+            path === "/"
+              ? location.pathname === "/"
+              : location.pathname.startsWith(path);
           return (
             <NavLink
-              key={item.path}
-              to={item.path}
-              onClick={() => setWsMenuOpen(false)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${
+              key={path}
+              to={path}
+              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all group ${
                 isActive
-                  ? "gradient-primary text-primary-foreground shadow-soft"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              }`}
+                  ? "bg-primary/10 text-primary"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+              } ${collapsed ? "justify-center" : ""}`}
             >
-              <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
+              <Icon
+                className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
+              />
               <AnimatePresence>
                 {!collapsed && (
                   <motion.span
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="whitespace-nowrap"
+                    className="truncate"
                   >
-                    {item.title}
+                    {title}
                   </motion.span>
                 )}
               </AnimatePresence>
@@ -325,19 +238,39 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* ── COLLAPSE BUTTON ── */}
-      <div className="p-2 border-t border-sidebar-border flex-shrink-0">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center py-1.5 rounded-lg text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-        >
-          {collapsed ? (
-            <ChevronRight className="w-4 h-4" />
-          ) : (
-            <ChevronLeft className="w-4 h-4" />
+      {/* ── BOTTOM USER ROW ── */}
+      <div
+        className={`flex-shrink-0 border-t border-sidebar-border p-2 flex items-center gap-2 ${collapsed ? "justify-center" : ""}`}
+      >
+        <Avatar name={displayName} photo={photoURL} size={7} />
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex-1 min-w-0"
+            >
+              <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                {displayName}
+              </p>
+              {myRole && <RoleBadge role={myRole} />}
+            </motion.div>
           )}
-        </button>
+        </AnimatePresence>
       </div>
+
+      {/* ── COLLAPSE TOGGLE ── */}
+      <button
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex-shrink-0 flex items-center justify-center h-8 border-t border-sidebar-border text-muted-foreground hover:bg-sidebar-accent transition-colors"
+      >
+        {collapsed ? (
+          <ChevronRight className="w-4 h-4" />
+        ) : (
+          <ChevronLeft className="w-4 h-4" />
+        )}
+      </button>
     </motion.aside>
   );
 }

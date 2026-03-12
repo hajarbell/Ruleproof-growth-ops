@@ -6,6 +6,8 @@ import {
   RedirectIfAuth,
 } from "@/components/auth/ProtectedRoute";
 
+import { AppLayout } from "@/components/layout/AppLayout";
+
 import Dashboard from "@/pages/Dashboard";
 
 import LoginPage from "@/pages/auth/LoginPage";
@@ -46,19 +48,21 @@ export default function App() {
           {/* INVITE LINK */}
           <Route path="/invite/:token" element={<InvitePage />} />
 
-          {/* PROTECTED APP */}
+          {/* PROTECTED APP — wrapped in AppLayout so sidebar + topbar render */}
           <Route element={<RequireWorkspace />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/linkedin" element={<LinkedInPage />} />
-            <Route path="/facebook" element={<FacebookPage />} />
-            <Route path="/content" element={<ContentStudioPage />} />
-            <Route path="/ideas" element={<IdeasLabPage />} />
-            <Route path="/scrapers" element={<ScrapersPage />} />
-            <Route path="/leads" element={<LeadsCRMPage />} />
-            <Route path="/campaigns" element={<CampaignsPage />} />
-            <Route path="/files" element={<FilesPage />} />
-            <Route path="/activity" element={<ActivityPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/linkedin" element={<LinkedInPage />} />
+              <Route path="/facebook" element={<FacebookPage />} />
+              <Route path="/content" element={<ContentStudioPage />} />
+              <Route path="/ideas" element={<IdeasLabPage />} />
+              <Route path="/scrapers" element={<ScrapersPage />} />
+              <Route path="/leads" element={<LeadsCRMPage />} />
+              <Route path="/campaigns" element={<CampaignsPage />} />
+              <Route path="/files" element={<FilesPage />} />
+              <Route path="/activity" element={<ActivityPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Route>
           </Route>
 
           {/* 404 */}
