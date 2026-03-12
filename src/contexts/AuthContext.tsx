@@ -150,14 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setMembers(membersArr);
 
       const me = membersArr.find((m) => m.uid === uid);
+
       if (ws.ownerId === uid) {
         setMyRole("admin");
       } else if (me) {
         setMyRole(me.role);
       } else {
-        setWorkspace(null);
-        setMembers([]);
-        setMyRole(null);
+        console.warn("User not found in members yet");
       }
       setWsLoading(false);
     });
@@ -179,9 +178,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           wsUnsubRef.current();
           wsUnsubRef.current = null;
         }
-        setWorkspace(null);
-        setMembers([]);
-        setMyRole(null);
       }
     });
     userUnsubRef.current = unsub;
@@ -196,7 +192,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Pass 1
     const userDoc = await getDoc(doc(db, "users", uid));
     const fromDoc = getWorkspaceIdFromDoc(userDoc.data());
-    if (fromDoc) return fromDoc;
+
+    if (fromDoc) {
+      const ws = await getDoc(doc(db, "workspaces", fromDoc));
+      if (ws.exists()) return fromDoc;
+    }
 
     // Pass 2 — owner
     const ownerSnap = await getDocs(
