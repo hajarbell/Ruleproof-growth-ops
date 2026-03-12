@@ -155,8 +155,8 @@ const CONTENT_TAGS = [
     color: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
   },
   {
-    id: "insightful",
-    label: "Insightful",
+    id: "storytelling",
+    label: "Storytelling",
     color: "bg-cyan-500/10 text-cyan-400 border border-cyan-500/20",
   },
 ];
@@ -504,7 +504,6 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
 
 // ─── Geography Bubbles ────────────────────────────────────────────────────────
 function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const postsWithGeo = posts.filter((p) => p.topLocations?.length);
   if (!postsWithGeo.length) {
     return (
@@ -522,7 +521,6 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
       </div>
     );
   }
-  // Use MAX pct across posts (not avg) for better representation
   const agg: Record<string, number> = {};
   postsWithGeo.forEach((p) =>
     p.topLocations!.forEach((l) => {
@@ -533,116 +531,39 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
     .map(([name, pct]) => ({ name, pct }))
     .sort((a, b) => b.pct - a.pct)
     .slice(0, 6);
-  const maxPct = locations[0].pct;
-  const positions = [
-    { left: "50%", top: "50%" },
-    { left: "24%", top: "30%" },
-    { left: "76%", top: "26%" },
-    { left: "26%", top: "72%" },
-    { left: "74%", top: "70%" },
-    { left: "51%", top: "16%" },
-  ];
+  const maxPct = locations[0].pct || 1;
+
   return (
-    <div
-      className="relative h-80 w-full rounded-xl"
-      style={{
-        background:
-          "radial-gradient(ellipse at 50% 50%, hsl(var(--muted)/0.3) 0%, transparent 80%)",
-      }}
-    >
-      <svg
-        className="absolute inset-0 w-full h-full rounded-xl opacity-[0.07]"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <defs>
-          <pattern
-            id="geo-grid"
-            width="24"
-            height="24"
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d="M 24 0 L 0 0 0 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="0.5"
-            />
-          </pattern>
-        </defs>
-        <rect width="100%" height="100%" fill="url(#geo-grid)" />
-      </svg>
+    <div className="flex flex-wrap justify-center items-center gap-4 py-4 px-2">
       {locations.map((loc, i) => {
-        // Cap bubble size so they never overflow — max 110px
-        const size = Math.min(50 + (loc.pct / maxPct) * 70, 110);
-        const pos = positions[i] ?? { left: "50%", top: "50%" };
+        const size = Math.min(52 + (loc.pct / maxPct) * 64, 116);
         const color = GEO_COLORS[i % GEO_COLORS.length];
-        const isHov = hoveredIdx === i;
         return (
           <motion.div
             key={loc.name}
             initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: isHov ? 1.08 : 1, opacity: 1 }}
-            transition={
-              i === 0
-                ? {
-                    delay: i * 0.08,
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 14,
-                  }
-                : {
-                    delay: i * 0.08,
-                    type: "spring",
-                    stiffness: 200,
-                    damping: 14,
-                  }
-            }
-            onHoverStart={() => setHoveredIdx(i)}
-            onHoverEnd={() => setHoveredIdx(null)}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{
+              delay: i * 0.07,
+              type: "spring",
+              stiffness: 220,
+              damping: 16,
+            }}
             style={{
-              position: "absolute",
-              left: pos.left,
-              top: pos.top,
-              transform: "translate(-50%,-50%)",
               width: size,
               height: size,
-              background: `radial-gradient(circle at 36% 36%, ${color}55, ${color}18)`,
-              border: `1.5px solid ${color}${isHov ? "cc" : "60"}`,
-              boxShadow: isHov
-                ? `0 0 ${size * 0.5}px ${color}45, 0 0 ${size * 0.2}px ${color}30`
-                : `0 0 ${size * 0.3}px ${color}20`,
+              backgroundColor: color,
               borderRadius: "50%",
-              cursor: "default",
-              zIndex: isHov ? 10 : i,
+              flexShrink: 0,
             }}
-            className="flex flex-col items-center justify-center"
+            className="flex flex-col items-center justify-center cursor-default"
           >
-            <span
-              className="text-[12px] font-bold leading-none drop-shadow-sm"
-              style={{ color }}
-            >
+            <span className="text-[11px] font-bold leading-none text-white">
               {loc.pct}%
             </span>
-            <span
-              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
-              style={{ color: color + "dd" }}
-            >
+            <span className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium text-white/80">
               {loc.name}
             </span>
-            {isHov && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
-              >
-                <span className="font-semibold" style={{ color }}>
-                  {loc.name}
-                </span>
-                <span className="text-muted-foreground ml-1">
-                  {loc.pct}% of audience
-                </span>
-              </motion.div>
-            )}
           </motion.div>
         );
       })}
@@ -802,10 +723,16 @@ function PostTimingDisplay({ posts }: { posts: LinkedInPost[] }) {
 
   if (!hasTiming && !hasDays)
     return (
-      <div className="flex flex-col items-center justify-center h-16 gap-1.5 text-center">
+      <div className="flex flex-col items-center justify-center h-20 gap-2 text-center px-2">
         <Clock className="w-4 h-4 opacity-30 text-muted-foreground" />
-        <p className="text-[10px] text-muted-foreground italic">
-          Import posts with times to unlock
+        <p className="text-[10px] text-muted-foreground italic leading-relaxed">
+          No timing data yet
+          <br />
+          <span className="text-[9px] opacity-70">
+            Weekly exports don't include post times. Import a{" "}
+            <strong className="font-semibold">per-post export</strong> to unlock
+            Best Hour.
+          </span>
         </p>
       </div>
     );
@@ -1640,9 +1567,13 @@ function AddPostModal({
               continue;
             let pct = 0;
             if (typeof pctRaw === "number") pct = Math.round(pctRaw * 100);
-            else if (typeof pctRaw === "string" && pctRaw.includes("%"))
-              pct = 1;
-            // Handle both naming conventions: "Location"/"Locations", "Job title"/"Job titles"
+            else if (typeof pctRaw === "string") {
+              const s = String(pctRaw).trim();
+              if (s.startsWith("<"))
+                pct = 1; // "< 1%" → treat as 1%
+              else if (s.includes("%")) pct = Math.round(parseFloat(s) || 0);
+              else pct = Math.round((parseFloat(s) || 0) * 100);
+            }
             const catL = cat.toLowerCase();
             if (catL === "location" || catL === "locations")
               topLocations.push({ name: val, pct });
@@ -1654,6 +1585,7 @@ function AddPostModal({
               topSeniority.push({ name: val, pct });
             else if (catL === "company size" || catL === "company sizes")
               topCompanySizes.push({ name: val, pct });
+            // "Company" category exists in some exports — skip silently (not displayed)
           }
           return {
             topLocations,
@@ -1665,8 +1597,18 @@ function AddPostModal({
         };
 
         // ─── Helper: parse a number safely ─────────────────────────────────
-        const parseNum = (v: any) =>
-          parseInt(String(v ?? "0").replace(/,/g, "")) || 0;
+        const parseNum = (v: any) => {
+          if (v == null) return 0;
+          const s = String(v).replace(/,/g, "").trim();
+          // Handle "< 1%" or any non-numeric string
+          if (
+            s.startsWith("<") ||
+            s === "" ||
+            isNaN(Number(s.replace(/[^0-9.-]/g, "")))
+          )
+            return 0;
+          return parseInt(s.replace(/[^0-9]/g, "")) || 0;
+        };
 
         // ─── Helper: format a date to YYYY-MM-DD ───────────────────────────
         const fmtDate = (raw: any): string => {
@@ -1742,7 +1684,13 @@ function AddPostModal({
             topCompanySizes: [] as any[],
           };
           if (wb.SheetNames.length > 1) {
-            demo = parseDemographics(wb.Sheets[wb.SheetNames[1]]);
+            // LinkedIn uses "TOP DEMOGRAPHICS" in per-post exports
+            const demoSheetName = wb.SheetNames.find((s) =>
+              s.toUpperCase().includes("DEMOGRAPHICS"),
+            );
+            if (demoSheetName) {
+              demo = parseDemographics(wb.Sheets[demoSheetName]);
+            }
           }
           if (!demo.topLocations.length && highlightLocation)
             demo.topLocations.push({ name: highlightLocation, pct: 50 });
@@ -1943,17 +1891,18 @@ function AddPostModal({
         }
 
         // ── DEMOGRAPHICS ──────────────────────────────────────────────────
-        const demoIdx = sheetNames.indexOf("DEMOGRAPHICS");
-        const weekDemo =
-          demoIdx >= 0
-            ? parseDemographics(wb.Sheets[wb.SheetNames[demoIdx]])
-            : {
-                topLocations: [],
-                topJobFunctions: [],
-                topIndustries: [],
-                topSeniority: [],
-                topCompanySizes: [],
-              };
+        const demoSheetName = wb.SheetNames.find((s) =>
+          s.toUpperCase().includes("DEMOGRAPHICS"),
+        );
+        const weekDemo = demoSheetName
+          ? parseDemographics(wb.Sheets[demoSheetName])
+          : {
+              topLocations: [],
+              topJobFunctions: [],
+              topIndustries: [],
+              topSeniority: [],
+              topCompanySizes: [],
+            };
 
         // ── Build posts list ──────────────────────────────────────────────
         const posts: LinkedInPost[] = [];
@@ -3676,17 +3625,35 @@ export default function LinkedInPage() {
   }, [workspace?.id]);
 
   useEffect(() => {
-    if (oauthProcessed.current) return;
+    // Guard: only run once ever, and only when we have real OAuth params in the URL
     const linkedinName = searchParams.get("linkedin_name");
     const error = searchParams.get("error");
     const linkedinId = searchParams.get("linkedin_id");
+
+    // Nothing OAuth-related in URL — skip entirely (prevents re-trigger on workspace load)
+    if (!linkedinName && !error) return;
+
+    // Already processed — clear URL and stop
+    if (oauthProcessed.current) {
+      setSearchParams({});
+      return;
+    }
+
     if (error) {
+      oauthProcessed.current = true;
       setToast({ msg: "LinkedIn connection failed.", type: "error" });
       setSearchParams({});
       return;
     }
-    if (linkedinName && workspace && colRef && !oauthProcessed.current) {
+
+    if (linkedinName && workspace && colRef) {
       oauthProcessed.current = true;
+      // Capture headline/avatar NOW before clearing params
+      const headline = searchParams.get("linkedin_headline") || "";
+      const avatarUrl = searchParams.get("linkedin_avatar") || "";
+      // Clear URL params immediately so re-renders never re-trigger this
+      setSearchParams({});
+
       getDocs(query(colRef, where("linkedinId", "==", linkedinId || ""))).then(
         (snap) => {
           if (!snap.empty && linkedinId) {
@@ -3700,13 +3667,12 @@ export default function LinkedInPage() {
               msg: `✅ ${linkedinName} already connected.`,
               type: "success",
             });
-            setSearchParams({});
             return;
           }
           const newAcc = {
             name: linkedinName,
-            headline: searchParams.get("linkedin_headline") || "",
-            avatarUrl: searchParams.get("linkedin_avatar") || "",
+            headline,
+            avatarUrl,
             avatarInitials: initials(linkedinName),
             avatarColor:
               AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
@@ -3728,12 +3694,11 @@ export default function LinkedInPage() {
               setSelectedAccountId(docRef.id);
               setEditingAccount(saved);
               setToast({
-                msg: `✅ ${linkedinName} connected!`,
+                msg: `✅ ${linkedinName} connected! Fill in your details below.`,
                 type: "success",
               });
             },
           );
-          setSearchParams({});
         },
       );
     }
