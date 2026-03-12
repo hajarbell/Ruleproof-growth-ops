@@ -1,7 +1,4 @@
 // api/linkedin/callback.ts
-// Uses require() for firebase-admin — ESM + firebase-admin breaks on Vercel serverless.
-// This file is compiled to CJS via api/tsconfig.json.
-
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -20,7 +17,7 @@ function initAdmin() {
       }),
     });
   }
-  return admin.firestore() as FirebaseFirestore.Firestore;
+  return admin.firestore();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -37,7 +34,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET!;
     const REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI!;
 
-    // ── Exchange code for access token ──────────────────────────────────────
     const tokenRes = await fetch(
       "https://www.linkedin.com/oauth/v2/accessToken",
       {
@@ -63,7 +59,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const expiresIn: number = tokenData.expires_in ?? 5183944;
     const expiresAt = Date.now() + expiresIn * 1000;
 
-    // ── Get LinkedIn profile ─────────────────────────────────────────────────
     const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -75,7 +70,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const avatar: string = profile.picture || "";
     const email: string = profile.email || "";
 
-    // ── Store token in Firestore (server-side only) ──────────────────────────
     if (workspaceId && linkedinId) {
       const db = initAdmin();
 
@@ -86,14 +80,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .doc(linkedinId)
         .set({
           linkedinId,
-          accessToken, // stored server-side only, never sent to client
+          accessToken,
           expiresAt,
           name,
           email,
           updatedAt: Date.now(),
         });
 
-      // Write notification so the bell rings for owner + personal message for member
       try {
         await db
           .collection("workspaces")
@@ -113,7 +106,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // ── Redirect to app with profile info only (NOT the token) ──────────────
     const params = new URLSearchParams({
       linkedin_name: name,
       linkedin_headline: headline,
