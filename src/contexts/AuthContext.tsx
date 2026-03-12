@@ -33,7 +33,6 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 export type MemberRole = "admin" | "vip" | "guest";
 
 export interface WorkspaceMember {
@@ -61,6 +60,7 @@ interface AuthContextType {
   myRole: MemberRole | null;
   loading: boolean;
   wsLoading: boolean;
+  banned: boolean; // true if this user was removed/banned by owner
   signInWithGoogle: (
     inviteToken?: string,
     inviteRole?: string,
@@ -74,6 +74,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   createWorkspace: (name: string) => Promise<void>;
+  renameWorkspace: (name: string) => Promise<void>;
   generateNewInviteToken: () => Promise<string>;
   joinWorkspaceByToken: (
     token: string,
@@ -105,20 +106,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [myRole, setMyRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true);
   const [wsLoading, setWsLoading] = useState(false);
+  const [banned, setBanned] = useState(false);
 
   const wsUnsubRef = useRef<(() => void) | null>(null);
 
-  // ─── Subscribe to workspace with live updates ─────────────────────────────
   const subscribeToWorkspace = (workspaceId: string, uid: string) => {
     if (wsUnsubRef.current) {
       wsUnsubRef.current();
       wsUnsubRef.current = null;
     }
-
     setWsLoading(true);
 
-    const wsRef = doc(db, "workspaces", workspaceId);
-    const unsub = onSnapshot(wsRef, (snap) => {
+    const unsub = onSnapshot(doc(db, "workspaces", workspaceId), (snap) => {
       if (!snap.exists()) {
         setWorkspace(null);
         setMembers([]);
@@ -126,10 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setWsLoading(false);
         return;
       }
-
       const wsData = snap.data();
       const ws: Workspace = { id: snap.id, ...wsData } as Workspace;
-
       const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
         ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
         : [];
@@ -147,21 +144,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMembers([]);
         setMyRole(null);
       }
-
       setWsLoading(false);
     });
-
     wsUnsubRef.current = unsub;
   };
 
-  // ─── Load workspace for a user ────────────────────────────────────────────
   const loadWorkspace = async (uid: string, currentUser?: User | null) => {
     const u = currentUser ?? user;
     setWsLoading(true);
 
     const userDoc = await getDoc(doc(db, "users", uid));
-    let workspaceId: string | undefined = userDoc.data()?.workspaceId;
+    const userData = userDoc.data();
 
+    // ── BANNED CHECK: if owner set banned:true, block completely ─────────────
+    if (userData?.banned === true) {
+      setBanned(true);
+      setWsLoading(false);
+      return;
+    }
+
+    let workspaceId: string | undefined = userData?.workspaceId;
+
+    // Fallback: owner check — but only if not banned
     if (!workspaceId) {
       const q = query(
         collection(db, "workspaces"),
@@ -181,19 +185,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     subscribeToWorkspace(workspaceId, uid);
 
+    // Bootstrap empty members array for old accounts
     const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
     if (wsDoc.exists()) {
       const wsData = wsDoc.data();
       const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
         ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
         : [];
-
       if (membersArr.length === 0) {
         const ownerMember: WorkspaceMember = {
           uid,
-          email: userDoc.data()?.email ?? u?.email ?? "",
-          displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
-          photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
+          email: userData?.email ?? u?.email ?? "",
+          displayName: userData?.displayName ?? u?.displayName ?? "",
+          photoURL: userData?.photoURL ?? u?.photoURL ?? "",
           role: "admin",
           joinedAt: new Date().toISOString(),
         };
@@ -204,7 +208,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // ─── Auth state listener ───────────────────────────────────────────────────
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
@@ -228,6 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setWorkspace(null);
           setMembers([]);
           setMyRole(null);
+          setBanned(false);
           setWsLoading(false);
         }
       } catch (err) {
@@ -240,10 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ─── Google sign-in (POPUP — replaces broken redirect flow) ───────────────
-  // signInWithRedirect was breaking on Vercel + modern browsers because of
-  // third-party cookie restrictions killing the redirect credential storage.
-  // signInWithPopup doesn't rely on cookies/redirects — it just works.
+  // ─── Google sign-in (popup — reliable everywhere) ─────────────────────────
   const signInWithGoogle = async (
     inviteToken?: string,
     inviteRole?: string,
@@ -252,18 +253,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.setItem("pendingInviteToken", inviteToken);
       sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
     }
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
-    // onAuthStateChanged fires automatically after this → loads workspace → redirects
+    const result = await signInWithPopup(auth, new GoogleAuthProvider());
     return result.user;
   };
 
-  // ─── Email sign-in ────────────────────────────────────────────────────────
   const signInWithEmail = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password);
   };
 
-  // ─── Email sign-up ────────────────────────────────────────────────────────
   const signUpWithEmail = async (
     email: string,
     password: string,
@@ -279,7 +276,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // ─── Logout ───────────────────────────────────────────────────────────────
   const logout = async () => {
     if (wsUnsubRef.current) {
       wsUnsubRef.current();
@@ -293,7 +289,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 
-  // ─── Create workspace ─────────────────────────────────────────────────────
   const createWorkspace = async (name: string) => {
     if (!user) return;
     const inviteToken = generateToken();
@@ -321,7 +316,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     subscribeToWorkspace(wsRef.id, user.uid);
   };
 
-  // ─── Generate new invite token ────────────────────────────────────────────
+  // ─── Rename workspace ─────────────────────────────────────────────────────
+  const renameWorkspace = async (name: string) => {
+    if (!workspace || !name.trim()) return;
+    await updateDoc(doc(db, "workspaces", workspace.id), { name: name.trim() });
+    // onSnapshot picks up the change automatically
+  };
+
   const generateNewInviteToken = async (): Promise<string> => {
     if (!workspace) throw new Error("No workspace");
     const newToken = generateToken();
@@ -331,7 +332,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return newToken;
   };
 
-  // ─── Join workspace by invite token ──────────────────────────────────────
   const joinWorkspaceByToken = async (
     token: string,
     invitedRole?: MemberRole,
@@ -375,12 +375,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateDoc(doc(db, "workspaces", workspaceId), {
       members: arrayUnion(newMember),
     });
-    await setDoc(doc(db, "users", user.uid), { workspaceId }, { merge: true });
+    // Clear banned flag in case they were previously removed and re-invited
+    await setDoc(
+      doc(db, "users", user.uid),
+      { workspaceId, banned: false },
+      { merge: true },
+    );
     subscribeToWorkspace(workspaceId, user.uid);
     return { workspaceName: wsData.name, role };
   };
 
-  // ─── Update member role ───────────────────────────────────────────────────
   const updateMemberRole = async (uid: string, role: MemberRole) => {
     if (!workspace) return;
     const updatedMembers = members.map((m) =>
@@ -391,7 +395,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // ─── Remove member ────────────────────────────────────────────────────────
+  // ─── Remove member — HARD BLOCK ───────────────────────────────────────────
+  // Sets banned:true + clears workspaceId so they:
+  //   1. Get shown the "You've been removed" screen immediately (real-time)
+  //   2. Can't log back in and create/join a new workspace
+  //   3. Can't bypass via the ownerId fallback in loadWorkspace
   const removeMember = async (uid: string) => {
     if (!workspace) return;
     const member = members.find((m) => m.uid === uid);
@@ -400,7 +408,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: arrayRemove(member),
     });
-    await setDoc(doc(db, "users", uid), { workspaceId: null }, { merge: true });
+    await setDoc(
+      doc(db, "users", uid),
+      {
+        workspaceId: null,
+        banned: true, // ← THE HARD BLOCK
+      },
+      { merge: true },
+    );
   };
 
   return (
@@ -412,12 +427,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         myRole,
         loading,
         wsLoading,
+        banned,
         signInWithGoogle,
         signInWithEmail,
         signUpWithEmail,
         logout,
         resetPassword,
         createWorkspace,
+        renameWorkspace,
         generateNewInviteToken,
         joinWorkspaceByToken,
         updateMemberRole,

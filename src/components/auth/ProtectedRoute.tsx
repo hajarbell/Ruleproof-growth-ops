@@ -1,5 +1,6 @@
 import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { ShieldOff } from "lucide-react";
 
 function LoadingScreen() {
   return (
@@ -14,19 +15,47 @@ function LoadingScreen() {
   );
 }
 
+// ─── Shown when an owner has removed/banned this user ────────────────────────
+function RemovedScreen() {
+  const { logout } = useAuth();
+  return (
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="flex flex-col items-center gap-5 max-w-sm text-center">
+        <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
+          <ShieldOff className="w-8 h-8 text-destructive" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold text-foreground mb-2">
+            Access Removed
+          </h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Your access to this workspace has been revoked by the owner. Contact
+            them if you think this is a mistake.
+          </p>
+        </div>
+        <button
+          onClick={async () => {
+            await logout();
+            window.location.href = "/login";
+          }}
+          className="px-5 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
+        >
+          Back to login
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── RequireWorkspace ─────────────────────────────────────────────────────────
-// Protects all main app routes.
-// Must wait for BOTH auth AND workspace to finish loading before deciding.
 export function RequireWorkspace() {
-  const { user, workspace, loading, wsLoading } = useAuth();
+  const { user, workspace, loading, wsLoading, banned } = useAuth();
 
-  // Wait for auth state to resolve
   if (loading) return <LoadingScreen />;
-
-  // User is logged in — wait for workspace fetch to complete before
-  // deciding whether to send them to /setup-workspace.
-  // Without this, workspace=null for a split second and causes false redirect.
   if (user && wsLoading) return <LoadingScreen />;
+
+  // Banned users see the removed screen — they can't access anything
+  if (user && banned) return <RemovedScreen />;
 
   if (!user) return <Navigate to="/login" replace />;
   if (!workspace) return <Navigate to="/setup-workspace" replace />;
@@ -35,28 +64,17 @@ export function RequireWorkspace() {
 }
 
 // ─── RedirectIfAuth ───────────────────────────────────────────────────────────
-// Wraps public pages (login, signup, forgot-password).
-// KEY FIX: Never redirect to /setup-workspace while wsLoading is still true.
-// This was causing the Google auth redirect loop:
-//   1. Google redirects back to /login
-//   2. onAuthStateChanged fires → user is set, wsLoading=true (snapshot pending)
-//   3. loading=false, user set, workspace=null → old code redirected to /setup-workspace
-//   4. User ends up in wrong place, clicks back → stuck loop
-// Now we wait for wsLoading to settle before making any routing decision.
 export function RedirectIfAuth() {
-  const { user, workspace, loading, wsLoading } = useAuth();
+  const { user, workspace, loading, wsLoading, banned } = useAuth();
 
-  // Always wait for auth
   if (loading) return <LoadingScreen />;
-
-  // If user is known, wait for workspace fetch too before redirecting anywhere.
-  // This is the critical guard that prevents the Google redirect loop.
   if (user && wsLoading) return <LoadingScreen />;
 
-  // Both auth + workspace resolved — now safe to redirect
+  // Banned users trying to access login/signup — show removed screen
+  if (user && banned) return <RemovedScreen />;
+
   if (user && workspace) return <Navigate to="/" replace />;
   if (user && !workspace) return <Navigate to="/setup-workspace" replace />;
 
-  // Not logged in — show the page (login/signup/etc)
   return <Outlet />;
 }

@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import {
   Loader2,
   Users,
-  CheckCircle,
+  Sparkles,
   AlertCircle,
   LogIn,
   Shield,
@@ -61,10 +61,7 @@ export default function InvitePage() {
       setWorkspaceName(result.workspaceName);
       setStatus("success");
 
-      // Write notification with BOTH messages:
-      // - message: what the owner/others see ("Bassma joined as Admin")
-      // - personalMessage: what the joiner sees ("Welcome! You joined RuProof as Admin 🎉")
-      // - actorUid: so TopBar can pick the right message per viewer
+      // Write notification with both owner-facing and personal messages
       try {
         const q = query(
           collection(db, "workspaces"),
@@ -77,24 +74,19 @@ export default function InvitePage() {
           const name = activeUser.displayName || activeUser.email || "Someone";
           const roleLabel =
             result.role.charAt(0).toUpperCase() + result.role.slice(1);
-
           await addDoc(collection(db, "workspaces", wsId, "notifications"), {
             type: "member_joined",
-            // What the admin/owner sees:
             message: `${name} joined the workspace as ${roleLabel}.`,
-            // What the new member themselves sees (personalised):
-            personalMessage: `🎉 Welcome! You joined ${wsDisplayName} as ${roleLabel}.`,
+            personalMessage: `You joined ${wsDisplayName} as ${roleLabel}.`,
             actorUid: activeUser.uid,
             actorName: name,
             read: false,
             createdAt: new Date().toISOString(),
           });
         }
-      } catch (_) {
-        // Non-fatal — join already succeeded
-      }
+      } catch (_) {}
 
-      setTimeout(() => navigate("/"), 2000);
+      setTimeout(() => navigate("/"), 2500);
     } catch (err: any) {
       setErrorMsg(err.message || "Invalid invite link.");
       setStatus("error");
@@ -104,11 +96,8 @@ export default function InvitePage() {
   useEffect(() => {
     if (loading) return;
     if (user && status === "idle") {
-      const pendingToken = sessionStorage.getItem("pendingInviteToken");
-      if (pendingToken) {
-        sessionStorage.removeItem("pendingInviteToken");
-        sessionStorage.removeItem("pendingInviteRole");
-      }
+      sessionStorage.removeItem("pendingInviteToken");
+      sessionStorage.removeItem("pendingInviteRole");
       doJoin(user);
     }
   }, [user, loading]);
@@ -142,7 +131,7 @@ export default function InvitePage() {
             <span className="text-xl font-bold text-primary-foreground">R</span>
           </div>
 
-          {/* Not signed in yet */}
+          {/* Not signed in */}
           {status === "idle" && !user && (
             <>
               <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
@@ -152,13 +141,12 @@ export default function InvitePage() {
                 You've been invited!
               </h1>
               <p className="text-muted-foreground text-sm mb-6">
-                Sign in to join the workspace as{" "}
+                Sign in to join as{" "}
                 <span className={`font-semibold ${roleInfo.color}`}>
                   {roleInfo.label}
                 </span>
                 .
               </p>
-
               <button
                 onClick={handleGoogle}
                 className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm font-medium text-foreground mb-4"
@@ -183,7 +171,6 @@ export default function InvitePage() {
                 </svg>
                 Continue with Google
               </button>
-
               <p className="text-xs text-muted-foreground">
                 Already have an account?{" "}
                 <button
@@ -208,18 +195,24 @@ export default function InvitePage() {
             </div>
           )}
 
+          {/* Success — Sparkles icon, no emoji */}
           {status === "success" && (
             <div className="py-4">
-              <div className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4">
-                <CheckCircle className="w-7 h-7 text-emerald-500" />
-              </div>
+              <motion.div
+                initial={{ scale: 0.5, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 260, damping: 18 }}
+                className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto mb-4"
+              >
+                <Sparkles className="w-8 h-8 text-amber-500" />
+              </motion.div>
               <h2 className="text-xl font-bold text-foreground mb-2">
-                🎉 Welcome to {workspaceName}!
+                Welcome to {workspaceName}
               </h2>
               <p className="text-muted-foreground text-sm mb-1">
                 You joined as <strong>{roleInfo.label}</strong>.
               </p>
-              <p className="text-xs text-muted-foreground opacity-70">
+              <p className="text-xs text-muted-foreground opacity-60 mt-3">
                 Taking you to your dashboard...
               </p>
             </div>
@@ -227,8 +220,8 @@ export default function InvitePage() {
 
           {status === "error" && (
             <div className="py-4">
-              <div className="w-14 h-14 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-                <AlertCircle className="w-7 h-7 text-red-400" />
+              <div className="w-14 h-14 rounded-full bg-destructive/10 flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-7 h-7 text-destructive" />
               </div>
               <h2 className="text-xl font-bold text-foreground mb-2">
                 Invalid invite

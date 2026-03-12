@@ -1,15 +1,54 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Building2, User, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  Building2,
+  User,
+  AlertCircle,
+  CheckCircle2,
+  ShieldOff,
+  LogOut,
+} from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function WorkspaceSetupPage() {
-  const { createWorkspace, loading, user } = useAuth();
+  const { createWorkspace, loading, user, banned, logout } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [type, setType] = useState<"personal" | "agency">("personal");
   const [error, setError] = useState("");
+
+  // ── Banned users hit this page but must NOT be allowed to create a workspace ──
+  if (banned) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-5 max-w-sm text-center">
+          <div className="w-16 h-16 rounded-2xl bg-destructive/10 flex items-center justify-center">
+            <ShieldOff className="w-8 h-8 text-destructive" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-foreground mb-2">
+              Access Removed
+            </h1>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Your access to this workspace has been revoked by the owner.
+              Contact them if you think this is a mistake.
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              await logout();
+              navigate("/login");
+            }}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Back to login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,6 +66,16 @@ export default function WorkspaceSetupPage() {
   };
 
   const firstName = user?.displayName?.split(" ")[0] || "there";
+
+  const WS_TYPES = [
+    { t: "personal" as const, label: "Personal", sub: "Just me", Icon: User },
+    {
+      t: "agency" as const,
+      label: "Agency",
+      sub: "Team & clients",
+      Icon: Building2,
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -63,7 +112,7 @@ export default function WorkspaceSetupPage() {
 
         <div className="glass rounded-2xl p-8 shadow-soft border border-border/50">
           <h1 className="text-2xl font-bold font-display text-foreground mb-1">
-            Hey {firstName}! 👋
+            Hey {firstName}!
           </h1>
           <p className="text-muted-foreground text-sm mb-6">
             Set up your workspace to get started.
@@ -78,30 +127,23 @@ export default function WorkspaceSetupPage() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+              <label className="block text-sm font-medium text-foreground mb-1.5">
                 Workspace Name
               </label>
               <input
-                type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. RuProof Agency"
-                required
-                className="w-full px-4 py-2.5 rounded-lg bg-muted/50 border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder="e.g. RuProof HQ"
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-2 block">
-                Workspace Type
+              <label className="block text-sm font-medium text-foreground mb-2">
+                Type
               </label>
               <div className="grid grid-cols-2 gap-3">
-                {(
-                  [
-                    ["personal", User, "Personal", "Just for me"],
-                    ["agency", Building2, "Agency", "Team workspace"],
-                  ] as const
-                ).map(([t, Icon, label, sub]) => (
+                {WS_TYPES.map(({ t, label, sub, Icon }) => (
                   <button
                     key={t}
                     type="button"
