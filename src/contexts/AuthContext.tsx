@@ -9,8 +9,7 @@ import {
 import {
   User,
   onAuthStateChanged,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -131,7 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const wsData = snap.data();
       const ws: Workspace = { id: snap.id, ...wsData } as Workspace;
 
-      let membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
+      const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
         ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
         : [];
 
@@ -207,16 +206,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ─── Auth state listener ───────────────────────────────────────────────────
   useEffect(() => {
-    // ✅ THE FIX: Call getRedirectResult FIRST before setting up onAuthStateChanged.
-    // When Google redirects back to your app, Firebase holds a pending credential.
-    // Without this call, that credential is never processed and the user stays
-    // logged out even though Google auth succeeded. This was causing the loop:
-    // click Google → go to Google → come back → still on login page.
-    getRedirectResult(auth).catch((err) => {
-      // Log but don't crash — onAuthStateChanged will still fire correctly
-      console.error("AuthContext: getRedirectResult error", err);
-    });
-
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       try {
@@ -230,7 +219,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             },
             { merge: true },
           );
-
           await loadWorkspace(u.uid, u);
         } else {
           if (wsUnsubRef.current) {
@@ -252,7 +240,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ─── Google sign-in (redirect flow) ───────────────────────────────────────
+  // ─── Google sign-in (POPUP — replaces broken redirect flow) ───────────────
+  // signInWithRedirect was breaking on Vercel + modern browsers because of
+  // third-party cookie restrictions killing the redirect credential storage.
+  // signInWithPopup doesn't rely on cookies/redirects — it just works.
   const signInWithGoogle = async (
     inviteToken?: string,
     inviteRole?: string,
@@ -261,8 +252,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.setItem("pendingInviteToken", inviteToken);
       sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
     }
-    await signInWithRedirect(auth, new GoogleAuthProvider());
-    return null;
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(auth, provider);
+    // onAuthStateChanged fires automatically after this → loads workspace → redirects
+    return result.user;
   };
 
   // ─── Email sign-in ────────────────────────────────────────────────────────
@@ -407,7 +400,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: arrayRemove(member),
     });
-
     await setDoc(doc(db, "users", uid), { workspaceId: null }, { merge: true });
   };
 
