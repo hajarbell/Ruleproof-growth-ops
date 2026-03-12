@@ -61,7 +61,10 @@ export default function InvitePage() {
       setWorkspaceName(result.workspaceName);
       setStatus("success");
 
-      // Write notification for admins
+      // Write notification with BOTH messages:
+      // - message: what the owner/others see ("Bassma joined as Admin")
+      // - personalMessage: what the joiner sees ("Welcome! You joined RuProof as Admin 🎉")
+      // - actorUid: so TopBar can pick the right message per viewer
       try {
         const q = query(
           collection(db, "workspaces"),
@@ -70,16 +73,26 @@ export default function InvitePage() {
         const snap = await getDocs(q);
         if (!snap.empty) {
           const wsId = snap.docs[0].id;
+          const wsDisplayName = result.workspaceName;
           const name = activeUser.displayName || activeUser.email || "Someone";
+          const roleLabel =
+            result.role.charAt(0).toUpperCase() + result.role.slice(1);
+
           await addDoc(collection(db, "workspaces", wsId, "notifications"), {
             type: "member_joined",
-            message: `${name} joined the workspace as ${result.role}.`,
+            // What the admin/owner sees:
+            message: `${name} joined the workspace as ${roleLabel}.`,
+            // What the new member themselves sees (personalised):
+            personalMessage: `🎉 Welcome! You joined ${wsDisplayName} as ${roleLabel}.`,
+            actorUid: activeUser.uid,
             actorName: name,
             read: false,
             createdAt: new Date().toISOString(),
           });
         }
-      } catch (_) {}
+      } catch (_) {
+        // Non-fatal — join already succeeded
+      }
 
       setTimeout(() => navigate("/"), 2000);
     } catch (err: any) {
@@ -88,14 +101,9 @@ export default function InvitePage() {
     }
   };
 
-  // After auth loads: auto-join if user is present.
-  // Also handles post-redirect: sessionStorage has the token if Google redirect
-  // brought us here after signing in on another page.
   useEffect(() => {
-    if (loading) return; // wait for Firebase auth to resolve
-
+    if (loading) return;
     if (user && status === "idle") {
-      // Check if we arrived here after a Google redirect from another page
       const pendingToken = sessionStorage.getItem("pendingInviteToken");
       if (pendingToken) {
         sessionStorage.removeItem("pendingInviteToken");
@@ -106,16 +114,13 @@ export default function InvitePage() {
   }, [user, loading]);
 
   const handleGoogle = () => {
-    // Store invite details so they survive the redirect
     if (token) {
       sessionStorage.setItem("pendingInviteToken", token);
       sessionStorage.setItem("pendingInviteRole", role);
     }
-    // signInWithGoogle triggers a page redirect — page reloads after auth
     signInWithGoogle(token, role);
   };
 
-  // While Firebase is still resolving auth state, show a spinner
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -137,7 +142,7 @@ export default function InvitePage() {
             <span className="text-xl font-bold text-primary-foreground">R</span>
           </div>
 
-          {/* Not signed in yet — show sign-in options */}
+          {/* Not signed in yet */}
           {status === "idle" && !user && (
             <>
               <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
@@ -146,29 +151,19 @@ export default function InvitePage() {
               <h1 className="text-2xl font-bold text-foreground mb-2">
                 You've been invited!
               </h1>
-              <p className="text-muted-foreground mb-4 text-sm">
-                You're joining <strong>RuProof Growth OS</strong> as:
+              <p className="text-muted-foreground text-sm mb-6">
+                Sign in to join the workspace as{" "}
+                <span className={`font-semibold ${roleInfo.color}`}>
+                  {roleInfo.label}
+                </span>
+                .
               </p>
-
-              <div
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl ${roleInfo.bg} border border-border mb-6`}
-              >
-                <roleInfo.icon className={`w-4 h-4 ${roleInfo.color}`} />
-                <div className="text-left">
-                  <p className={`text-sm font-bold ${roleInfo.color}`}>
-                    {roleInfo.label}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {roleInfo.desc}
-                  </p>
-                </div>
-              </div>
 
               <button
                 onClick={handleGoogle}
-                className="w-full flex items-center justify-center gap-3 px-5 py-3 rounded-xl border border-border bg-card hover:bg-muted transition-colors text-sm font-medium text-foreground mb-3"
+                className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border border-border bg-card hover:bg-muted transition-colors text-sm font-medium text-foreground mb-4"
               >
-                <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" viewBox="0 0 24 24">
                   <path
                     fill="#4285F4"
                     d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -188,12 +183,11 @@ export default function InvitePage() {
                 </svg>
                 Continue with Google
               </button>
+
               <p className="text-xs text-muted-foreground">
-                Or{" "}
+                Already have an account?{" "}
                 <button
-                  onClick={() =>
-                    navigate(`/login?invite=${token}&role=${role}`)
-                  }
+                  onClick={() => navigate("/login")}
                   className="text-primary hover:underline"
                 >
                   sign in with email
@@ -220,14 +214,13 @@ export default function InvitePage() {
                 <CheckCircle className="w-7 h-7 text-emerald-500" />
               </div>
               <h2 className="text-xl font-bold text-foreground mb-2">
-                Welcome to your dashboard
+                🎉 Welcome to {workspaceName}!
               </h2>
               <p className="text-muted-foreground text-sm mb-1">
-                You joined <strong>{workspaceName}</strong> as{" "}
-                <strong>{roleInfo.label}</strong>.
+                You joined as <strong>{roleInfo.label}</strong>.
               </p>
               <p className="text-xs text-muted-foreground opacity-70">
-                Taking you there now...
+                Taking you to your dashboard...
               </p>
             </div>
           )}

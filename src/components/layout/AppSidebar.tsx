@@ -16,7 +16,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  ChevronDown,
   UserPlus,
   Shield,
   Star,
@@ -24,13 +23,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
-// ─── Nav per role — paths MUST match routes in App.tsx exactly ───────────────
+// ─── Nav paths MUST match routes in App.tsx exactly ──────────────────────────
 const ALL_NAV = [
   { title: "Dashboard", path: "/", icon: LayoutDashboard },
   { title: "LinkedIn", path: "/linkedin", icon: Linkedin },
   { title: "Facebook", path: "/facebook", icon: Facebook },
-  { title: "Content Studio", path: "/content", icon: PenTool }, // was /content-studio ❌
-  { title: "Ideas Lab", path: "/ideas", icon: Lightbulb }, // was /ideas-lab ❌
+  { title: "Content Studio", path: "/content", icon: PenTool },
+  { title: "Ideas Lab", path: "/ideas", icon: Lightbulb },
   { title: "Scrapers", path: "/scrapers", icon: Bot },
   { title: "Leads CRM", path: "/leads", icon: UserSearch },
   { title: "Campaigns", path: "/campaigns", icon: Megaphone },
@@ -46,13 +45,11 @@ function getNavItems(role: string | null) {
   if (role === "admin") return ALL_NAV;
   if (role === "vip")
     return ALL_NAV.filter((i) => !VIP_HIDDEN.includes(i.path));
-  // guest
   return ALL_NAV.filter(
     (i) => GUEST_PATHS.includes(i.path) || i.path === "/settings",
   );
 }
 
-// ─── Role badge ───────────────────────────────────────────────────────────────
 function RoleBadge({ role }: { role: string }) {
   if (role === "admin")
     return (
@@ -76,7 +73,6 @@ function RoleBadge({ role }: { role: string }) {
   );
 }
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
 function Avatar({
   name,
   photo,
@@ -105,10 +101,8 @@ function Avatar({
   );
 }
 
-// ─── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [wsMenuOpen, setWsMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, workspace, members, myRole, logout } = useAuth();
@@ -118,7 +112,6 @@ export function AppSidebar() {
   const photoURL = user?.photoURL || "";
 
   const handleLogout = async () => {
-    setWsMenuOpen(false);
     await logout();
     navigate("/login");
   };
@@ -129,80 +122,81 @@ export function AppSidebar() {
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-30 overflow-hidden"
     >
-      {/* ── WORKSPACE HEADER ── */}
-      <div className="relative flex-shrink-0">
-        <button
-          onClick={() => !collapsed && setWsMenuOpen(!wsMenuOpen)}
-          className={`w-full flex items-center gap-2.5 px-3 py-3 hover:bg-sidebar-accent transition-colors ${collapsed ? "justify-center" : ""}`}
+      {/* ── WORKSPACE HEADER — no click needed ── */}
+      <div className="flex-shrink-0 px-3 pt-3 pb-2">
+        {/* Workspace name */}
+        <div
+          className={`flex items-center gap-2.5 mb-2.5 ${collapsed ? "justify-center" : ""}`}
         >
           <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0 shadow-sm text-primary-foreground font-bold text-sm">
             {workspace?.name?.[0]?.toUpperCase() ?? "R"}
           </div>
-
           <AnimatePresence>
             {!collapsed && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="flex-1 min-w-0 text-left overflow-hidden"
+                className="flex-1 min-w-0"
               >
                 <p className="font-bold text-sm text-sidebar-foreground truncate leading-tight">
                   {workspace?.name ?? "RuProof"}
                 </p>
-                <p className="text-[10px] text-muted-foreground truncate">
-                  Growth OS
-                </p>
+                <p className="text-[10px] text-muted-foreground">Growth OS</p>
               </motion.div>
             )}
           </AnimatePresence>
+        </div>
 
-          {!collapsed && (
-            <ChevronDown
-              className={`w-3.5 h-3.5 text-muted-foreground flex-shrink-0 transition-transform ${wsMenuOpen ? "rotate-180" : ""}`}
-            />
-          )}
-        </button>
-
-        {/* Workspace dropdown */}
+        {/* ── Members strip — always visible, no click ── */}
         <AnimatePresence>
-          {wsMenuOpen && !collapsed && (
+          {!collapsed && members.length > 0 && (
             <motion.div
-              initial={{ opacity: 0, y: -4 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
-              className="absolute top-full left-2 right-2 bg-card border border-border rounded-xl shadow-xl z-50 py-1 overflow-hidden"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center gap-2"
             >
-              <div className="px-3 py-2 border-b border-border">
-                <p className="text-xs font-semibold text-foreground truncate">
-                  {workspace?.name}
-                </p>
-                <p className="text-[10px] text-muted-foreground">
-                  {members.length} member{members.length !== 1 ? "s" : ""}
-                </p>
+              {/* Stacked avatars */}
+              <div className="flex -space-x-1.5 flex-shrink-0">
+                {members.slice(0, 5).map((m) => (
+                  <div
+                    key={m.uid}
+                    title={`${m.displayName || m.email} · ${m.role}`}
+                    className="ring-2 ring-sidebar rounded-full"
+                  >
+                    <Avatar
+                      name={m.displayName || m.email}
+                      photo={m.photoURL}
+                      size={5}
+                    />
+                  </div>
+                ))}
               </div>
-              <button
-                onClick={() => {
-                  setWsMenuOpen(false);
-                  navigate("/settings");
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-foreground hover:bg-muted transition-colors"
-              >
-                <UserPlus className="w-3.5 h-3.5" /> Invite members
-              </button>
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-destructive hover:bg-muted transition-colors"
-              >
-                <LogOut className="w-3.5 h-3.5" /> Sign out
-              </button>
+
+              <span className="text-[10px] text-muted-foreground flex-1 min-w-0 truncate">
+                {members.length} member{members.length !== 1 ? "s" : ""}
+              </span>
+
+              {myRole === "admin" && (
+                <button
+                  onClick={() => navigate("/settings")}
+                  title="Invite members"
+                  className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-semibold transition-colors flex-shrink-0 px-1.5 py-1 rounded-md hover:bg-primary/10"
+                >
+                  <UserPlus className="w-3 h-3" />
+                  Invite
+                </button>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
+      <div className="border-b border-sidebar-border mx-2 mb-1" />
+
       {/* ── NAV ITEMS ── */}
-      <nav className="flex-1 overflow-y-auto overflow-x-hidden py-2 space-y-0.5 px-2">
+      <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
         {navItems.map(({ title, path, icon: Icon }) => {
           const isActive =
             path === "/"
@@ -212,14 +206,18 @@ export function AppSidebar() {
             <NavLink
               key={path}
               to={path}
-              className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm font-medium transition-all group ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
                 isActive
                   ? "bg-primary/10 text-primary"
                   : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
               } ${collapsed ? "justify-center" : ""}`}
             >
               <Icon
-                className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
+                className={`w-4 h-4 flex-shrink-0 ${
+                  isActive
+                    ? "text-primary"
+                    : "text-muted-foreground group-hover:text-foreground"
+                }`}
               />
               <AnimatePresence>
                 {!collapsed && (
@@ -238,37 +236,46 @@ export function AppSidebar() {
         })}
       </nav>
 
-      {/* ── BOTTOM USER ROW ── */}
-      <div
-        className={`flex-shrink-0 border-t border-sidebar-border p-2 flex items-center gap-2 ${collapsed ? "justify-center" : ""}`}
-      >
-        <Avatar name={displayName} photo={photoURL} size={7} />
-        <AnimatePresence>
-          {!collapsed && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="flex-1 min-w-0"
-            >
-              <p className="text-xs font-semibold text-sidebar-foreground truncate">
-                {displayName}
-              </p>
-              {myRole && <RoleBadge role={myRole} />}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* ── BOTTOM: user info + sign out ── */}
+      <div className="flex-shrink-0 border-t border-sidebar-border">
+        <div
+          className={`flex items-center gap-2 px-3 py-2.5 ${collapsed ? "justify-center" : ""}`}
+        >
+          <Avatar name={displayName} photo={photoURL} size={7} />
+          <AnimatePresence>
+            {!collapsed && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex-1 min-w-0"
+              >
+                <p className="text-xs font-semibold text-sidebar-foreground truncate">
+                  {displayName}
+                </p>
+                {myRole && <RoleBadge role={myRole} />}
+              </motion.div>
+            )}
+          </AnimatePresence>
+          <button
+            onClick={handleLogout}
+            title="Sign out"
+            className="flex-shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors ml-auto"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* ── COLLAPSE TOGGLE ── */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="flex-shrink-0 flex items-center justify-center h-8 border-t border-sidebar-border text-muted-foreground hover:bg-sidebar-accent transition-colors"
+        className="flex-shrink-0 flex items-center justify-center h-7 border-t border-sidebar-border text-muted-foreground hover:bg-sidebar-accent transition-colors"
       >
         {collapsed ? (
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-3.5 h-3.5" />
         ) : (
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-3.5 h-3.5" />
         )}
       </button>
     </motion.aside>

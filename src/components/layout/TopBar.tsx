@@ -9,13 +9,12 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   collection,
   query,
   orderBy,
-  updateDoc,
   doc,
   writeBatch,
   onSnapshot,
@@ -30,7 +29,11 @@ export interface AppNotification {
     | "account_connected"
     | "post_imported"
     | "weekly_digest";
+  // message = what owner sees
+  // personalMessage = what the actor themselves sees (optional)
   message: string;
+  personalMessage?: string;
+  actorUid?: string; // uid of who triggered this
   actorName: string;
   read: boolean;
   createdAt: string;
@@ -72,6 +75,33 @@ function typeDot(type: AppNotification["type"]) {
   }
 }
 
+// ─── Soft ping sound via Web Audio API ───────────────────────────────────────
+// No external file needed — generated purely in-browser.
+function playPing() {
+  try {
+    const ctx = new (
+      window.AudioContext || (window as any).webkitAudioContext
+    )();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+    osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.3); // decay to A4
+
+    gain.gain.setValueAtTime(0.18, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Audio not available — silent fail
+  }
+}
+
 interface TopBarProps {
   onOpenCommand: () => void;
 }
@@ -87,7 +117,12 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
 
   const userMenuRef = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLDivElement>(null);
+  // Track previous unread count so we only ping on NEW unread items
+  const prevUnreadRef = useRef<number>(0);
+  // Skip pinging on the very first load (don't ping for existing notifications)
+  const initialLoadRef = useRef(true);
 
+  // Close dropdowns on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (
@@ -102,23 +137,39 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Real-time listener — admin only
+  // ─── Real-time notifications — admin only ──────────────────────────────────
   useEffect(() => {
     if (!workspace?.id || myRole !== "admin") return;
     const q = query(
       collection(db, "workspaces", workspace.id, "notifications"),
       orderBy("createdAt", "desc"),
     );
-    return onSnapshot(q, (snap) => {
-      setNotifications(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as AppNotification),
+    const unsub = onSnapshot(q, (snap) => {
+      const items = snap.docs.map(
+        (d) => ({ id: d.id, ...d.data() }) as AppNotification,
       );
+      setNotifications(items);
+
+      const unread = items.filter((n) => !n.read).length;
+
+      if (initialLoadRef.current) {
+        // First snapshot — store baseline, don't ping
+        prevUnreadRef.current = unread;
+        initialLoadRef.current = false;
+      } else if (unread > prevUnreadRef.current) {
+        // New unread arrived — ping!
+        playPing();
+        prevUnreadRef.current = unread;
+      } else {
+        prevUnreadRef.current = unread;
+      }
     });
+    return unsub;
   }, [workspace?.id, myRole]);
 
   const unread = notifications.filter((n) => !n.read).length;
 
-  const markAllRead = async () => {
+  const markAllRead = useCallback(async () => {
     if (!workspace?.id) return;
     const list = notifications.filter((n) => !n.read);
     if (!list.length) return;
@@ -129,17 +180,17 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
       }),
     );
     await batch.commit();
-  };
+  }, [workspace?.id, notifications]);
 
   const handleBellClick = () => {
     const opening = !bellOpen;
     setBellOpen(opening);
-    if (opening && unread > 0) setTimeout(markAllRead, 2000);
+    if (opening && unread > 0) setTimeout(markAllRead, 1500);
   };
 
   const handleLogout = async () => {
     await logout();
-    navigate("/logged-out");
+    navigate("/login");
   };
 
   const initials = user?.displayName
@@ -150,6 +201,16 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
         .toUpperCase()
         .slice(0, 2)
     : (user?.email?.[0]?.toUpperCase() ?? "?");
+
+  // ─── Personalized message for each notification ───────────────────────────
+  // If current user is the actor (actorUid matches), show personalMessage.
+  // Otherwise show the default message (what the owner/others see).
+  const getDisplayMessage = (n: AppNotification) => {
+    if (n.actorUid && n.actorUid === user?.uid && n.personalMessage) {
+      return n.personalMessage;
+    }
+    return n.message;
+  };
 
   return (
     <header className="h-16 border-b border-border bg-card/80 backdrop-blur-md sticky top-0 z-20 flex items-center justify-between px-6">
@@ -191,7 +252,6 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                   transition={{ duration: 0.14 }}
                   className="absolute right-0 top-full mt-2 w-80 bg-card border border-border rounded-2xl shadow-xl z-50 overflow-hidden"
                 >
-                  {/* Header */}
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                     <p className="text-sm font-semibold text-foreground">
                       Notifications
@@ -206,7 +266,6 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                     )}
                   </div>
 
-                  {/* List */}
                   <div className="max-h-72 overflow-y-auto">
                     {notifications.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-10 gap-2">
@@ -228,7 +287,7 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                             <p
                               className={`text-xs leading-snug ${n.read ? "text-muted-foreground" : "text-foreground font-medium"}`}
                             >
-                              {n.message}
+                              {getDisplayMessage(n)}
                             </p>
                             <div className="flex items-center gap-2 mt-0.5">
                               <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wide font-semibold">
@@ -247,7 +306,6 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                     )}
                   </div>
 
-                  {/* Footer */}
                   {notifications.length > 0 && (
                     <div className="border-t border-border px-4 py-2.5">
                       <button
@@ -257,7 +315,7 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                         }}
                         className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                       >
-                        View all in Settings
+                        View all in Settings →
                       </button>
                     </div>
                   )}
