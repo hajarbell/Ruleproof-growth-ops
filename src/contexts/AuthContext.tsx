@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [myRole, setMyRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true); // auth loading
-  const [wsLoading, setWsLoading] = useState(false); // workspace loading
+  const [wsLoading, setWsLoading] = useState(true); // start true — stays true until first workspace fetch resolves
 
   // Holds the Firestore unsubscribe function for the live workspace listener
   const wsUnsubRef = useRef<(() => void) | null>(null);
@@ -238,6 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setWorkspace(null);
         setMembers([]);
         setMyRole(null);
+        setWsLoading(false); // no user = no workspace fetch needed
       }
       setLoading(false);
     });
