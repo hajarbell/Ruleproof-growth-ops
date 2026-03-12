@@ -1,29 +1,31 @@
 // api/linkedin/callback.ts
-// Replace your existing api/linkedin/callback.ts with this file.
-// Changes: stores access_token + expiry in Firestore so you can post on behalf of members.
-// Also writes "account_connected" notification to the workspace.
+// Uses require() for firebase-admin — ESM + firebase-admin breaks on Vercel serverless.
+// This file is compiled to CJS via api/tsconfig.json.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
 
-// Initialize Firebase Admin (only once)
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  });
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const admin = require("firebase-admin");
+
+function initAdmin() {
+  if (admin.apps.length === 0) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(
+          /\\n/g,
+          "\n",
+        ),
+      }),
+    });
+  }
+  return admin.firestore() as FirebaseFirestore.Firestore;
 }
-
-const db = getFirestore();
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const { code, error, state } = req.query;
   const APP_URL = process.env.APP_URL || "http://localhost:8080";
-  // state = workspaceId (passed via getLinkedInAuthUrl)
   const workspaceId = typeof state === "string" ? state : "";
 
   if (error || !code) {
@@ -58,10 +60,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const accessToken: string = tokenData.access_token;
-    const expiresIn: number = tokenData.expires_in ?? 5183944; // ~60 days default
+    const expiresIn: number = tokenData.expires_in ?? 5183944;
     const expiresAt = Date.now() + expiresIn * 1000;
 
-    // ── Get user profile ─────────────────────────────────────────────────────
+    // ── Get LinkedIn profile ─────────────────────────────────────────────────
     const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
@@ -73,10 +75,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const avatar: string = profile.picture || "";
     const email: string = profile.email || "";
 
-    // ── Store token in Firestore (workspaces/{wsId}/linkedinTokens/{linkedinId}) ──
-    // This collection is NEVER exposed to the client — admin SDK only.
-    // The token is used server-side when scheduling posts.
+    // ── Store token in Firestore (server-side only) ──────────────────────────
     if (workspaceId && linkedinId) {
+      const db = initAdmin();
+
       await db
         .collection("workspaces")
         .doc(workspaceId)
@@ -84,16 +86,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .doc(linkedinId)
         .set({
           linkedinId,
-          accessToken, // ← the token for posting
+          accessToken, // stored server-side only, never sent to client
           expiresAt,
           name,
           email,
           updatedAt: Date.now(),
         });
 
-      // ── Write notification to workspace ──────────────────────────────────
-      // This fires "account_connected" so the bell rings for the owner
-      // AND a personal message for the member themselves
+      // Write notification so the bell rings for owner + personal message for member
       try {
         await db
           .collection("workspaces")
@@ -109,12 +109,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             createdAt: new Date().toISOString(),
           });
       } catch (notifErr) {
-        console.warn("Failed to write notification:", notifErr);
-        // Non-fatal — continue redirect
+        console.warn("Notification write failed (non-fatal):", notifErr);
       }
     }
 
-    // ── Redirect back to app with profile info (NOT the token) ──────────────
+    // ── Redirect to app with profile info only (NOT the token) ──────────────
     const params = new URLSearchParams({
       linkedin_name: name,
       linkedin_headline: headline,

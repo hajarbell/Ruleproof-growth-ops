@@ -1,30 +1,27 @@
 // api/linkedin/publish.ts
-// Vercel cron job — runs every minute and publishes scheduled posts whose time has come.
-// Add to vercel.json: { "crons": [{ "path": "/api/linkedin/publish", "schedule": "* * * * *" }] }
-//
-// How it works:
-// 1. ContentStudioPage saves posts to Firestore with status: "Scheduled" + scheduledDate + scheduledTime
-// 2. This endpoint runs every minute, finds posts where scheduled time <= now
-// 3. Looks up the linkedinId for the "Post As" account, fetches their stored token
-// 4. Calls LinkedIn ugcPosts API to publish
-// 5. Updates post status to "Published"
-// 6. Writes a notification + sends notification to assigned member
+// Vercel cron — runs every minute, publishes scheduled posts to LinkedIn.
+// Uses require() for firebase-admin — ESM + firebase-admin breaks on Vercel serverless.
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
 
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  });
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const admin = require("firebase-admin");
+
+function initAdmin() {
+  if (admin.apps.length === 0) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId: process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(
+          /\\n/g,
+          "\n",
+        ),
+      }),
+    });
+  }
+  return admin.firestore() as FirebaseFirestore.Firestore;
 }
-
-const db = getFirestore();
 
 async function publishToLinkedIn(
   accessToken: string,
@@ -61,9 +58,7 @@ async function publishToLinkedIn(
       return { success: false, error: errText };
     }
 
-    const data = await res.json();
-    // LinkedIn returns the post ID in the header X-RestLi-Id
-    const postId = res.headers.get("x-restli-id") || data.id || "";
+    const postId = res.headers.get("x-restli-id") || "";
     const postUrl = postId
       ? `https://www.linkedin.com/feed/update/${postId}`
       : undefined;
@@ -75,26 +70,24 @@ async function publishToLinkedIn(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Secure the endpoint — only callable by Vercel cron or your own backend
-  const authHeader = req.headers.authorization;
+  // Vercel cron sends Authorization header automatically when CRON_SECRET is set
+  const authHeader = req.headers["authorization"];
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
+  const db = initAdmin();
   const now = new Date();
   const nowISO = now.toISOString();
   let published = 0;
   let errors = 0;
 
   try {
-    // Get all workspaces
     const workspaces = await db.collection("workspaces").get();
 
     for (const wsDoc of workspaces.docs) {
       const wsId = wsDoc.id;
 
-      // Get scheduled posts for this workspace
-      // Posts are stored in Firestore as a subcollection: workspaces/{wsId}/contentPosts
       const postsSnap = await db
         .collection("workspaces")
         .doc(wsId)
@@ -109,36 +102,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!scheduledDate) continue;
 
-        // Build scheduled datetime
         const scheduledISO = `${scheduledDate}T${scheduledTime}:00`;
         const scheduledAt = new Date(scheduledISO);
-
-        // Only publish if scheduled time has passed (within last 5 min window)
         const diffMs = now.getTime() - scheduledAt.getTime();
-        if (diffMs < 0 || diffMs > 5 * 60 * 1000) continue; // not yet, or too old
 
-        // Find the LinkedIn account for this post
+        // Only publish if within the past 5-minute window
+        if (diffMs < 0 || diffMs > 5 * 60 * 1000) continue;
+
         const linkedinAccountId: string = post.linkedinAccountId || "";
         if (!linkedinAccountId) continue;
 
-        // Get the stored token
-        const tokenDoc = await db
+        // Get stored token — keyed by linkedinAccountId (Firestore doc ID of the account)
+        // Try both the doc ID and the linkedinId field
+        let tokenDoc = await db
           .collection("workspaces")
           .doc(wsId)
           .collection("linkedinTokens")
           .doc(linkedinAccountId)
           .get();
 
+        // If not found by doc ID, try querying by linkedinId field
+        if (!tokenDoc.exists) {
+          const tokenQuery = await db
+            .collection("workspaces")
+            .doc(wsId)
+            .collection("linkedinTokens")
+            .where("linkedinId", "==", linkedinAccountId)
+            .limit(1)
+            .get();
+          if (!tokenQuery.empty) {
+            tokenDoc = tokenQuery.docs[0];
+          }
+        }
+
         if (!tokenDoc.exists) {
           console.warn(
-            `No token for linkedinId ${linkedinAccountId} in ws ${wsId}`,
+            `No token for linkedinAccountId ${linkedinAccountId} in workspace ${wsId}`,
           );
           continue;
         }
 
         const tokenData = tokenDoc.data()!;
+
         if (tokenData.expiresAt < Date.now()) {
-          // Token expired — mark post as failed and notify
           await postDoc.ref.update({
             status: "TokenExpired",
             updatedAt: nowISO,
@@ -157,13 +163,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           continue;
         }
 
-        const accessToken: string = tokenData.accessToken;
-        const linkedinId: string = tokenData.linkedinId;
-
-        // Publish to LinkedIn
         const result = await publishToLinkedIn(
-          accessToken,
-          linkedinId,
+          tokenData.accessToken,
+          tokenData.linkedinId,
           post.content || "",
         );
 
@@ -175,8 +177,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             publishedUrl: result.postUrl || "",
             updatedAt: nowISO,
           });
-
-          // Notify workspace
           await db
             .collection("workspaces")
             .doc(wsId)
@@ -194,7 +194,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             });
         } else {
           errors++;
-          console.error(`Failed to publish post ${postDoc.id}:`, result.error);
           await postDoc.ref.update({
             status: "PublishFailed",
             publishError: result.error,
