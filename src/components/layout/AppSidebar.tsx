@@ -232,7 +232,7 @@ export function AppSidebar() {
       <motion.aside
         animate={{ width: collapsed ? 68 : 252 }}
         transition={{ duration: 0.2, ease: "easeInOut" }}
-        className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-30 overflow-hidden"
+        className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-[60] overflow-hidden"
       >
         {/* ── WORKSPACE HEADER ── */}
         <div className="flex-shrink-0 px-3 pt-3 pb-2">

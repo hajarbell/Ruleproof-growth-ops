@@ -504,6 +504,7 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
 
 // ─── Geography Bubbles ────────────────────────────────────────────────────────
 function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
   const postsWithGeo = posts.filter((p) => p.topLocations?.length);
   if (!postsWithGeo.length) {
     return (
@@ -534,36 +535,60 @@ function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
   const maxPct = locations[0].pct || 1;
 
   return (
-    <div className="flex flex-wrap justify-center items-center gap-4 py-4 px-2">
+    <div className="flex flex-wrap justify-center items-center gap-5 py-6 px-2">
       {locations.map((loc, i) => {
         const size = Math.min(52 + (loc.pct / maxPct) * 64, 116);
         const color = GEO_COLORS[i % GEO_COLORS.length];
+        const isHov = hoveredIdx === i;
         return (
           <motion.div
             key={loc.name}
             initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
+            animate={{ scale: isHov ? 1.08 : 1, opacity: 1 }}
             transition={{
               delay: i * 0.07,
               type: "spring",
               stiffness: 220,
               damping: 16,
             }}
+            onHoverStart={() => setHoveredIdx(i)}
+            onHoverEnd={() => setHoveredIdx(null)}
             style={{
               width: size,
               height: size,
-              backgroundColor: color,
+              background: `radial-gradient(circle at 36% 36%, ${color}50, ${color}18)`,
+              border: `1.5px solid ${color}50`,
               borderRadius: "50%",
               flexShrink: 0,
             }}
-            className="flex flex-col items-center justify-center cursor-default"
+            className="flex flex-col items-center justify-center cursor-default relative"
           >
-            <span className="text-[11px] font-bold leading-none text-white">
+            <span
+              className="text-[11px] font-bold leading-none"
+              style={{ color }}
+            >
               {loc.pct}%
             </span>
-            <span className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium text-white/80">
+            <span
+              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
+              style={{ color: color + "cc" }}
+            >
               {loc.name}
             </span>
+            {isHov && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
+              >
+                <span className="font-semibold" style={{ color }}>
+                  {loc.name}
+                </span>
+                <span className="text-muted-foreground ml-1">
+                  {loc.pct}% of audience
+                </span>
+              </motion.div>
+            )}
           </motion.div>
         );
       })}
@@ -3603,17 +3628,21 @@ export default function LinkedInPage() {
     type: "success" | "error";
   } | null>(null);
   const oauthProcessed = useRef(false);
-
-  const colRef = workspace
+  // Keep colRef in a ref so the OAuth effect can read it without it being a dependency
+  const colRefValue = workspace
     ? collection(db, "workspaces", workspace.id, "linkedinAccounts")
     : null;
+  const colRef = colRefValue;
+  const colRefRef = useRef(colRefValue);
+  colRefRef.current = colRefValue;
 
   useEffect(() => {
-    if (!colRef) {
+    if (!workspace?.id) {
       setLoading(false);
       return;
     }
-    getDocs(colRef).then((snap) => {
+    const ref = collection(db, "workspaces", workspace.id, "linkedinAccounts");
+    getDocs(ref).then((snap) => {
       const data = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
@@ -3624,16 +3653,15 @@ export default function LinkedInPage() {
     });
   }, [workspace?.id]);
 
+  // OAuth callback handler — runs ONLY when URL params change, never on workspace load
   useEffect(() => {
-    // Guard: only run once ever, and only when we have real OAuth params in the URL
     const linkedinName = searchParams.get("linkedin_name");
     const error = searchParams.get("error");
-    const linkedinId = searchParams.get("linkedin_id");
 
-    // Nothing OAuth-related in URL — skip entirely (prevents re-trigger on workspace load)
+    // No OAuth params in URL at all — do nothing
     if (!linkedinName && !error) return;
 
-    // Already processed — clear URL and stop
+    // Already handled this OAuth flow — just clear the URL
     if (oauthProcessed.current) {
       setSearchParams({});
       return;
@@ -3646,63 +3674,74 @@ export default function LinkedInPage() {
       return;
     }
 
-    if (linkedinName && workspace && colRef) {
+    if (linkedinName) {
       oauthProcessed.current = true;
-      // Capture headline/avatar NOW before clearing params
+      // Snapshot all params NOW before clearing the URL
+      const linkedinId = searchParams.get("linkedin_id") || "";
       const headline = searchParams.get("linkedin_headline") || "";
       const avatarUrl = searchParams.get("linkedin_avatar") || "";
-      // Clear URL params immediately so re-renders never re-trigger this
       setSearchParams({});
 
-      getDocs(query(colRef, where("linkedinId", "==", linkedinId || ""))).then(
-        (snap) => {
-          if (!snap.empty && linkedinId) {
-            const existing = {
-              id: snap.docs[0].id,
-              ...snap.docs[0].data(),
-            } as LinkedInAccount;
-            setSelectedAccountId(existing.id);
-            setEditingAccount(existing);
-            setToast({
-              msg: `✅ ${linkedinName} already connected.`,
-              type: "success",
-            });
-            return;
-          }
-          const newAcc = {
-            name: linkedinName,
-            headline,
-            avatarUrl,
-            avatarInitials: initials(linkedinName),
-            avatarColor:
-              AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
-            type: "personal" as const,
-            followers: 0,
-            followersGrowth: 0,
-            profileUrl: "",
-            linkedinId: linkedinId || "",
-            posts: [],
-          };
-          addDoc(colRef, { ...newAcc, createdAt: serverTimestamp() }).then(
-            (docRef) => {
-              const saved: LinkedInAccount = {
-                id: docRef.id,
-                ...newAcc,
-                createdAt: null,
-              };
-              setAccounts((prev) => [...prev, saved]);
-              setSelectedAccountId(docRef.id);
-              setEditingAccount(saved);
+      // Wait for workspace to be ready (it may still be loading)
+      const tryConnect = () => {
+        const ref = colRefRef.current;
+        if (!ref) {
+          // Workspace not loaded yet — retry in 300ms
+          setTimeout(tryConnect, 300);
+          return;
+        }
+        getDocs(query(ref, where("linkedinId", "==", linkedinId))).then(
+          (snap) => {
+            if (!snap.empty && linkedinId) {
+              const existing = {
+                id: snap.docs[0].id,
+                ...snap.docs[0].data(),
+              } as LinkedInAccount;
+              setSelectedAccountId(existing.id);
+              setEditingAccount(existing);
               setToast({
-                msg: `✅ ${linkedinName} connected! Fill in your details below.`,
+                msg: `✅ ${linkedinName} already connected.`,
                 type: "success",
               });
-            },
-          );
-        },
-      );
+              return;
+            }
+            const newAcc = {
+              name: linkedinName,
+              headline,
+              avatarUrl,
+              avatarInitials: initials(linkedinName),
+              avatarColor:
+                AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
+              type: "personal" as const,
+              followers: 0,
+              followersGrowth: 0,
+              profileUrl: "",
+              linkedinId,
+              posts: [],
+            };
+            addDoc(ref, { ...newAcc, createdAt: serverTimestamp() }).then(
+              (docRef) => {
+                const saved: LinkedInAccount = {
+                  id: docRef.id,
+                  ...newAcc,
+                  createdAt: null,
+                };
+                setAccounts((prev) => [...prev, saved]);
+                setSelectedAccountId(docRef.id);
+                setEditingAccount(saved);
+                setToast({
+                  msg: `✅ ${linkedinName} connected! Fill in your details below.`,
+                  type: "success",
+                });
+              },
+            );
+          },
+        );
+      };
+      tryConnect();
     }
-  }, [searchParams, workspace?.id]);
+    // Only re-run when URL params actually change — NOT when workspace loads
+  }, [searchParams]);
 
   useEffect(() => {
     if (toast) {
