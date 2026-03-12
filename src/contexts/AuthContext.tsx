@@ -99,16 +99,11 @@ function generateToken() {
   );
 }
 
-// ─── Reads workspaceId regardless of capitalisation ──────────────────────────
-// Firestore is case-sensitive so "workspaceId" and "workspaceID" are different
-// fields. This helper checks both and returns whichever exists.
-function getWorkspaceIdFromDoc(
-  data: Record<string, any> | undefined,
-): string | null {
+// Checks both capitalizations of workspaceId
+function getWsId(data: Record<string, any> | undefined): string | null {
   if (!data) return null;
-  // Prefer lowercase (canonical), fall back to uppercase D variant
   const id = data["workspaceId"] ?? data["workspaceID"] ?? null;
-  return typeof id === "string" && id.length > 0 ? id : null;
+  return typeof id === "string" && id.length > 4 ? id : null;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -134,163 +129,157 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsub = onSnapshot(doc(db, "workspaces", workspaceId), (snap) => {
       if (!snap.exists()) {
-        console.warn("Workspace missing");
+        setWorkspace(null);
+        setMembers([]);
+        setMyRole(null);
         setWsLoading(false);
         return;
       }
-      const wsData = snap.data();
-      const ws: Workspace = { id: snap.id, ...wsData } as Workspace;
-      const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
-        ? wsData.members.filter((m: any) => m && typeof m === "object" && m.uid)
+      const data = snap.data();
+      const ws: Workspace = { id: snap.id, ...data } as Workspace;
+      const mems: WorkspaceMember[] = Array.isArray(data.members)
+        ? data.members.filter((m: any) => m?.uid)
         : [];
-
       setWorkspace(ws);
-      setMembers(membersArr);
-
-      const me = membersArr.find((m) => m.uid === uid);
-
-      if (ws.ownerId === uid) {
-        setMyRole("admin");
-      } else if (me) {
-        setMyRole(me.role);
-      } else {
-        console.warn("User not found in members yet");
+      setMembers(mems);
+      const me = mems.find((m) => m.uid === uid);
+      if (ws.ownerId === uid) setMyRole("admin");
+      else if (me) setMyRole(me.role);
+      else {
+        setWorkspace(null);
+        setMembers([]);
+        setMyRole(null);
       }
       setWsLoading(false);
     });
     wsUnsubRef.current = unsub;
   };
 
-  // ─── Live user doc listener — instant ban ─────────────────────────────────
+  // ─── Live user doc — instant ban detection ────────────────────────────────
   const subscribeToUserDoc = (uid: string) => {
     if (userUnsubRef.current) {
       userUnsubRef.current();
       userUnsubRef.current = null;
     }
-
     const unsub = onSnapshot(doc(db, "users", uid), (snap) => {
-      if (!snap.exists()) return;
       if (snap.data()?.banned === true) {
         setBanned(true);
         if (wsUnsubRef.current) {
           wsUnsubRef.current();
           wsUnsubRef.current = null;
         }
+        setWorkspace(null);
+        setMembers([]);
+        setMyRole(null);
       }
     });
     userUnsubRef.current = unsub;
   };
 
-  // ─── 3-pass workspace finder ───────────────────────────────────────────────
-  // Pass 1: user doc (handles both workspaceId and workspaceID)
-  // Pass 2: workspaces where ownerId == uid
-  // Pass 3: full scan — finds any workspace with this uid in members array
-  // After pass 2 or 3, writes canonical workspaceId back so pass 1 always wins.
-  const findWorkspaceId = async (uid: string): Promise<string | null> => {
-    // Pass 1
-    const userDoc = await getDoc(doc(db, "users", uid));
-    const fromDoc = getWorkspaceIdFromDoc(userDoc.data());
+  // ─── THE KEY FUNCTION: find existing workspace, never create a new one ────
+  // Searches in order:
+  // 1. workspaceId / workspaceID field in user doc
+  // 2. Any workspace where ownerId == uid
+  // 3. Any workspace where uid appears in members array
+  // Always writes the found id back to user doc (canonical lowercase key)
+  // so future logins hit pass 1 instantly.
+  const findExistingWorkspace = async (uid: string): Promise<string | null> => {
+    const userDocRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userDocRef);
 
-    if (fromDoc) {
-      const ws = await getDoc(doc(db, "workspaces", fromDoc));
-      if (ws.exists()) return fromDoc;
+    // Pass 1 — saved id
+    const savedId = getWsId(userSnap.data());
+    if (savedId) {
+      // Verify it actually exists in Firestore (not stale/deleted)
+      const wsSnap = await getDoc(doc(db, "workspaces", savedId));
+      if (wsSnap.exists()) {
+        console.log("[Auth] Found workspace via user doc:", savedId);
+        return savedId;
+      }
+      console.warn(
+        "[Auth] Saved workspaceId points to deleted workspace, searching...",
+      );
     }
 
     // Pass 2 — owner
-    const ownerSnap = await getDocs(
+    const ownerQ = await getDocs(
       query(collection(db, "workspaces"), where("ownerId", "==", uid)),
     );
-    if (!ownerSnap.empty) {
-      const wsId = ownerSnap.docs[0].id;
-      await setDoc(
-        doc(db, "users", uid),
-        { workspaceId: wsId },
-        { merge: true },
-      );
+    if (!ownerQ.empty) {
+      // If user owns multiple workspaces (from previous bugs), pick the oldest one
+      const sorted = ownerQ.docs.sort((a, b) => {
+        const aTime = a.data().createdAt?.seconds ?? 0;
+        const bTime = b.data().createdAt?.seconds ?? 0;
+        return aTime - bTime; // ascending — oldest first
+      });
+      const wsId = sorted[0].id;
+      console.log("[Auth] Found workspace via ownerId:", wsId);
+      await setDoc(userDocRef, { workspaceId: wsId }, { merge: true });
       return wsId;
     }
 
-    // Pass 3 — member scan (JS-side filter because Firestore can't query nested uid)
-    const allSnap = await getDocs(collection(db, "workspaces"));
-    for (const d of allSnap.docs) {
+    // Pass 3 — member scan
+    const allWs = await getDocs(collection(db, "workspaces"));
+    for (const d of allWs.docs) {
       const mems: any[] = Array.isArray(d.data().members)
         ? d.data().members
         : [];
       if (mems.some((m) => m?.uid === uid)) {
-        const wsId = d.id;
-        await setDoc(
-          doc(db, "users", uid),
-          { workspaceId: wsId },
-          { merge: true },
-        );
-        return wsId;
+        console.log("[Auth] Found workspace via member scan:", d.id);
+        await setDoc(userDocRef, { workspaceId: d.id }, { merge: true });
+        return d.id;
       }
     }
 
+    console.log("[Auth] No existing workspace found for uid:", uid);
     return null;
   };
 
-  // ─── Load workspace ────────────────────────────────────────────────────────
-  const loadWorkspace = async (uid: string, currentUser?: User | null) => {
-    const u = currentUser ?? user;
+  // ─── Load workspace on login ───────────────────────────────────────────────
+  const loadWorkspace = async (uid: string, u: User | null) => {
     setWsLoading(true);
-
     try {
-      const userDoc = await getDoc(doc(db, "users", uid));
-      if (userDoc.data()?.banned === true) {
+      const userSnap = await getDoc(doc(db, "users", uid));
+
+      // Banned check
+      if (userSnap.data()?.banned === true) {
         setBanned(true);
         setWsLoading(false);
         return;
       }
 
-      const workspaceId = await findWorkspaceId(uid);
-      if (!workspaceId) {
-        const ownerSnap = await getDocs(
-          query(collection(db, "workspaces"), where("ownerId", "==", uid)),
-        );
+      const wsId = await findExistingWorkspace(uid);
 
-        if (!ownerSnap.empty) {
-          const wsId = ownerSnap.docs[0].id;
-
-          await setDoc(
-            doc(db, "users", uid),
-            { workspaceId: wsId },
-            { merge: true },
-          );
-
-          subscribeToWorkspace(wsId, uid);
-          return;
-        }
-
+      if (!wsId) {
+        // Truly new user — no workspace exists anywhere
         setWsLoading(false);
         return;
       }
 
-      // Bootstrap empty members array (one-time fix for old accounts)
-      const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
-      if (wsDoc.exists()) {
-        const wsData = wsDoc.data();
-        const mems: WorkspaceMember[] = Array.isArray(wsData.members)
-          ? wsData.members.filter((m: any) => m?.uid)
+      // Bootstrap empty members array for old accounts
+      const wsSnap = await getDoc(doc(db, "workspaces", wsId));
+      if (wsSnap.exists()) {
+        const mems: any[] = Array.isArray(wsSnap.data().members)
+          ? wsSnap.data().members
           : [];
-        if (mems.length === 0) {
+        if (!mems.some((m) => m?.uid)) {
           const ownerMember: WorkspaceMember = {
             uid,
-            email: userDoc.data()?.email ?? u?.email ?? "",
-            displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
-            photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
+            email: userSnap.data()?.email ?? u?.email ?? "",
+            displayName: userSnap.data()?.displayName ?? u?.displayName ?? "",
+            photoURL: userSnap.data()?.photoURL ?? u?.photoURL ?? "",
             role: "admin",
             joinedAt: new Date().toISOString(),
           };
-          await updateDoc(doc(db, "workspaces", workspaceId), {
+          await updateDoc(doc(db, "workspaces", wsId), {
             members: [ownerMember],
           });
         }
       }
 
-      subscribeToWorkspace(workspaceId, uid);
+      subscribeToWorkspace(wsId, uid);
     } catch (err) {
-      console.error("loadWorkspace error:", err);
+      console.error("[Auth] loadWorkspace error:", err);
       setWsLoading(false);
     }
   };
@@ -301,7 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       try {
         if (u) {
-          // merge:true means workspaceId / banned are NEVER overwritten here
+          // SAFE merge — never touches workspaceId or banned
           await setDoc(
             doc(db, "users", u.uid),
             {
@@ -330,7 +319,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setWsLoading(false);
         }
       } catch (err) {
-        console.error("AuthContext error:", err);
+        console.error("[Auth] onAuthStateChanged error:", err);
         setWsLoading(false);
       } finally {
         setLoading(false);
@@ -339,7 +328,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ─── Google popup — guarded against double-fire ───────────────────────────
+  // ─── Google popup ─────────────────────────────────────────────────────────
   const signInWithGoogle = async (
     inviteToken?: string,
     inviteRole?: string,
@@ -357,9 +346,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (
         err?.code !== "auth/cancelled-popup-request" &&
         err?.code !== "auth/popup-closed-by-user"
-      ) {
+      )
         throw err;
-      }
       return null;
     } finally {
       popupInFlightRef.current = false;
@@ -402,8 +390,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resetPassword = (email: string) => sendPasswordResetEmail(auth, email);
 
+  // ─── Create workspace — only called for genuinely new users ───────────────
+  // WorkspaceSetupPage shows only when findExistingWorkspace returned null.
   const createWorkspace = async (name: string) => {
     if (!user) return;
+
+    // Safety check: if user already has a workspace somehow, don't create another
+    const existing = await findExistingWorkspace(user.uid);
+    if (existing) {
+      console.warn(
+        "[Auth] createWorkspace called but workspace already exists:",
+        existing,
+      );
+      subscribeToWorkspace(existing, user.uid);
+      return;
+    }
+
     const inviteToken = generateToken();
     const ownerMember: WorkspaceMember = {
       uid: user.uid,
@@ -421,7 +423,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       members: [ownerMember],
       createdAt: serverTimestamp(),
     });
-    // Always write canonical lowercase workspaceId
     await setDoc(
       doc(db, "users", user.uid),
       { workspaceId: wsRef.id },
