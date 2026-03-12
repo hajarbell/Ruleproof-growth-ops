@@ -19,6 +19,8 @@ import {
   X,
   CheckCheck,
   Trash2,
+  Hash,
+  Calendar,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth, MemberRole } from "@/contexts/AuthContext";
@@ -30,7 +32,6 @@ import {
   onSnapshot,
   writeBatch,
   doc,
-  deleteDoc,
   getDocs,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -104,7 +105,6 @@ function RolePill({ role }: { role: MemberRole }) {
   );
 }
 
-// ─── Helpers (mirrored from TopBar) ──────────────────────────────────────────
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -139,7 +139,6 @@ function typeLabel(type: AppNotification["type"]) {
   }
 }
 
-// ─── Notifications Panel ──────────────────────────────────────────────────────
 function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -188,7 +187,6 @@ function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
       transition={{ delay: 0.1 }}
       className="glass rounded-xl shadow-soft overflow-hidden"
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-4 border-b border-border">
         <div className="flex items-center gap-3">
           <div className="p-2.5 rounded-lg bg-muted">
@@ -220,8 +218,6 @@ function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
           )}
         </div>
       </div>
-
-      {/* List */}
       {loading ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
@@ -236,10 +232,10 @@ function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : (
         <div>
-          {notifications.map((n, idx) => (
+          {notifications.map((n) => (
             <div
               key={n.id}
-              className={`flex items-start gap-3 px-5 py-3.5 border-b border-border/40 last:border-0 transition-colors ${!n.read ? "bg-muted/15" : ""}`}
+              className={`flex items-start gap-3 px-5 py-3.5 border-b border-border/40 last:border-0 ${!n.read ? "bg-muted/15" : ""}`}
             >
               <div
                 className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${typeDot(n.type)} ${n.read ? "opacity-25" : ""}`}
@@ -270,6 +266,142 @@ function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+// ─── Workspace Session Card ───────────────────────────────────────────────────
+function WorkspaceSessionCard() {
+  const { workspace, members, user } = useAuth();
+  const [copiedId, setCopiedId] = useState(false);
+
+  if (!workspace) return null;
+
+  const copyId = async () => {
+    await navigator.clipboard.writeText(workspace.id);
+    setCopiedId(true);
+    setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const createdAt = (workspace.createdAt as any)?.seconds
+    ? new Date((workspace.createdAt as any).seconds * 1000).toLocaleDateString(
+        "en-GB",
+        { day: "numeric", month: "short", year: "numeric" },
+      )
+    : "—";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.12 }}
+      className="glass rounded-xl shadow-soft overflow-hidden"
+    >
+      <div className="px-5 py-4 border-b border-border flex items-center gap-3">
+        <div className="p-2.5 rounded-lg bg-muted">
+          <Database className="w-5 h-5 text-muted-foreground" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-foreground">Workspace Session</h3>
+          <p className="text-xs text-muted-foreground">
+            Your active workspace details
+          </p>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-3">
+        {/* Workspace name */}
+        <div className="flex items-center justify-between py-2 border-b border-border/40">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-bold text-primary-foreground">
+                {workspace.name[0]?.toUpperCase()}
+              </span>
+            </div>
+            <span className="font-medium text-foreground">
+              {workspace.name}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {members.length} member{members.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        {/* Workspace ID */}
+        <div className="flex items-center justify-between py-1.5">
+          <div className="flex items-center gap-2">
+            <Hash className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Workspace ID</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="text-xs font-mono text-foreground bg-muted px-2 py-0.5 rounded">
+              {workspace.id.slice(0, 12)}...
+            </code>
+            <button
+              onClick={copyId}
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {copiedId ? (
+                <Check className="w-3.5 h-3.5 text-emerald-500" />
+              ) : (
+                <Copy className="w-3.5 h-3.5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Owner */}
+        <div className="flex items-center justify-between py-1.5">
+          <div className="flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Owner</span>
+          </div>
+          <span className="text-xs text-foreground font-medium">
+            {workspace.ownerId === user?.uid
+              ? "You"
+              : (members.find((m) => m.uid === workspace.ownerId)
+                  ?.displayName ?? "—")}
+          </span>
+        </div>
+
+        {/* Created */}
+        <div className="flex items-center justify-between py-1.5">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Created</span>
+          </div>
+          <span className="text-xs text-foreground">{createdAt}</span>
+        </div>
+
+        {/* Your session */}
+        <div className="mt-2 pt-3 border-t border-border/40">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            Your Session
+          </p>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/40">
+            {user?.photoURL ? (
+              <img
+                src={user.photoURL}
+                alt=""
+                className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground flex-shrink-0">
+                {user?.displayName?.[0]?.toUpperCase() ?? "?"}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-foreground truncate">
+                {user?.displayName ?? user?.email}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user?.email}
+              </p>
+            </div>
+            <RolePill role="admin" />
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function SettingsPage() {
   const { theme, toggleTheme } = useTheme();
   const {
@@ -284,14 +416,11 @@ export default function SettingsPage() {
   } = useAuth();
   const navigate = useNavigate();
 
-  // Invite modal state
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [selectedRole, setSelectedRole] = useState<MemberRole>("guest");
   const [generatedLink, setGeneratedLink] = useState("");
   const [generating, setGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  // Member management
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
 
@@ -350,7 +479,6 @@ export default function SettingsPage() {
               className="bg-card border border-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden"
             >
               <div className="h-1 w-full bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))]" />
-
               <div className="flex items-center justify-between px-6 py-4 border-b border-border">
                 <div>
                   <h2 className="font-bold text-foreground">
@@ -371,9 +499,7 @@ export default function SettingsPage() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-
               <div className="px-6 py-5 space-y-4">
-                {/* Role picker */}
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
                     Select Role
@@ -386,11 +512,7 @@ export default function SettingsPage() {
                           setSelectedRole(r.value);
                           setGeneratedLink("");
                         }}
-                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
-                          selectedRole === r.value
-                            ? `${r.bg} ring-2 ring-offset-1 ring-offset-card ${r.color.replace("text-", "ring-")}`
-                            : "border-border hover:bg-muted"
-                        }`}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${selectedRole === r.value ? `${r.bg} ring-2 ring-offset-1 ring-offset-card ${r.color.replace("text-", "ring-")}` : "border-border hover:bg-muted"}`}
                       >
                         <div
                           className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${r.bg}`}
@@ -414,8 +536,6 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 </div>
-
-                {/* Generate button */}
                 {!generatedLink && (
                   <button
                     onClick={handleGenerateLink}
@@ -430,8 +550,6 @@ export default function SettingsPage() {
                     Generate Invite Link
                   </button>
                 )}
-
-                {/* Generated link */}
                 {generatedLink && (
                   <div className="space-y-2">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -539,8 +657,6 @@ export default function SettingsPage() {
               Invite Member
             </button>
           </div>
-
-          {/* Role legend */}
           <div className="px-5 py-2.5 bg-muted/30 border-b border-border flex items-center gap-4 flex-wrap">
             {ROLES.map((r) => (
               <div
@@ -554,8 +670,6 @@ export default function SettingsPage() {
               </div>
             ))}
           </div>
-
-          {/* Members list */}
           <div className="divide-y divide-border">
             {members.map((member) => {
               const isMe = member.uid === user?.uid;
@@ -592,7 +706,6 @@ export default function SettingsPage() {
                       </p>
                     )}
                   </div>
-
                   {!isWsOwner ? (
                     <div className="flex items-center gap-2">
                       <div className="relative">
@@ -641,7 +754,6 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {/* Non-admin role info */}
       {myRole !== "admin" && (
         <motion.div
           initial={{ opacity: 0, y: 12 }}
@@ -671,32 +783,13 @@ export default function SettingsPage() {
         </motion.div>
       )}
 
-      {/* Notifications panel — admin only */}
+      {/* Notifications */}
       {myRole === "admin" && (
         <NotificationsPanel workspaceId={workspace?.id ?? ""} />
       )}
 
-      {/* Data & Integrations placeholder */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.14 }}
-        className="glass rounded-xl p-5 shadow-soft hover:border-primary/30 transition-colors cursor-pointer"
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-muted">
-            <Database className="w-5 h-5 text-muted-foreground" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-foreground">
-              Data &amp; Integrations
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Connected accounts, API keys, exports
-            </p>
-          </div>
-        </div>
-      </motion.div>
+      {/* Workspace Session — replaces old "Data & Integrations" placeholder */}
+      <WorkspaceSessionCard />
 
       <motion.div
         initial={{ opacity: 0, y: 12 }}

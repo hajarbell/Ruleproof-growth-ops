@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -8,8 +8,12 @@ import {
   CheckCircle2,
   ShieldOff,
   LogOut,
+  Loader2,
+  ArrowRight,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 export default function WorkspaceSetupPage() {
   const { createWorkspace, loading, user, banned, logout } = useAuth();
@@ -18,7 +22,62 @@ export default function WorkspaceSetupPage() {
   const [type, setType] = useState<"personal" | "agency">("personal");
   const [error, setError] = useState("");
 
-  // ── Banned users hit this page but must NOT be allowed to create a workspace ──
+  // ── Check if user already has a workspace ──────────────────────────────────
+  const [checking, setChecking] = useState(true);
+  const [existingWsName, setExistingWsName] = useState<string | null>(null);
+  const [rejoining, setRejoining] = useState(false);
+
+  useEffect(() => {
+    if (!user) {
+      setChecking(false);
+      return;
+    }
+
+    const findExisting = async () => {
+      try {
+        // Check by ownerId first
+        const ownerSnap = await getDocs(
+          query(collection(db, "workspaces"), where("ownerId", "==", user.uid)),
+        );
+        if (!ownerSnap.empty) {
+          const sorted = ownerSnap.docs.sort(
+            (a, b) =>
+              (a.data().createdAt?.seconds ?? 0) -
+              (b.data().createdAt?.seconds ?? 0),
+          );
+          setExistingWsName(sorted[0].data().name ?? "Your Workspace");
+          setChecking(false);
+          return;
+        }
+        // Check member scan
+        const allSnap = await getDocs(collection(db, "workspaces"));
+        for (const d of allSnap.docs) {
+          const mems: any[] = Array.isArray(d.data().members)
+            ? d.data().members
+            : [];
+          if (mems.some((m) => m?.uid === user.uid)) {
+            setExistingWsName(d.data().name ?? "Your Workspace");
+            setChecking(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+      setChecking(false);
+    };
+
+    findExisting();
+  }, [user?.uid]);
+
+  const handleRejoin = async () => {
+    setRejoining(true);
+    // createWorkspace in AuthContext detects existing workspace and subscribes to it
+    await createWorkspace("__rejoin__");
+    navigate("/");
+  };
+
+  // ── Banned screen ──────────────────────────────────────────────────────────
   if (banned) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -50,6 +109,99 @@ export default function WorkspaceSetupPage() {
     );
   }
 
+  // ── Loading check ──────────────────────────────────────────────────────────
+  if (checking) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center animate-pulse">
+            <span className="text-xl font-bold text-primary-foreground">R</span>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Finding your workspace...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── REJOIN SCREEN — user has an existing workspace ─────────────────────────
+  if (existingWsName) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-md"
+        >
+          {/* Logo */}
+          <div className="flex items-center gap-3 justify-center mb-8">
+            <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
+              <span className="text-lg font-bold text-primary-foreground">
+                R
+              </span>
+            </div>
+            <div>
+              <span className="font-bold text-xl font-display gradient-text">
+                RuProof
+              </span>
+              <span className="text-sm text-muted-foreground ml-1.5">
+                Growth OS
+              </span>
+            </div>
+          </div>
+
+          <div className="glass rounded-2xl p-8 shadow-soft border border-border/50 text-center">
+            {/* Workspace icon */}
+            <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-5 shadow-lg">
+              <span className="text-2xl font-bold text-primary-foreground">
+                {existingWsName[0]?.toUpperCase() ?? "R"}
+              </span>
+            </div>
+
+            <h1 className="text-2xl font-bold font-display text-foreground mb-2">
+              Welcome back!
+            </h1>
+            <p className="text-muted-foreground text-sm mb-1">
+              Your workspace is ready for you.
+            </p>
+            <p className="text-primary font-semibold text-lg mb-6">
+              {existingWsName}
+            </p>
+
+            <button
+              onClick={handleRejoin}
+              disabled={rejoining}
+              className="w-full gradient-primary text-primary-foreground py-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-60"
+            >
+              {rejoining ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" /> Reconnecting...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="w-4 h-4" /> Continue to{" "}
+                  {existingWsName}
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={async () => {
+                await logout();
+                navigate("/login");
+              }}
+              className="mt-3 w-full py-2.5 rounded-xl text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Sign in with a different account
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    );
+  }
+
+  // ── CREATE SCREEN — genuinely new user ────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -66,7 +218,6 @@ export default function WorkspaceSetupPage() {
   };
 
   const firstName = user?.displayName?.split(" ")[0] || "there";
-
   const WS_TYPES = [
     { t: "personal" as const, label: "Personal", sub: "Just me", Icon: User },
     {
@@ -137,7 +288,6 @@ export default function WorkspaceSetupPage() {
                 className="w-full px-3 py-2.5 rounded-lg border border-border bg-muted/50 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
               />
             </div>
-
             <div>
               <label className="block text-sm font-medium text-foreground mb-2">
                 Type
@@ -170,7 +320,6 @@ export default function WorkspaceSetupPage() {
                 ))}
               </div>
             </div>
-
             <button
               type="submit"
               disabled={loading}

@@ -1,22 +1,17 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-
 import {
   RequireWorkspace,
   RedirectIfAuth,
 } from "@/components/auth/ProtectedRoute";
-
 import { AppLayout } from "@/components/layout/AppLayout";
 
 import Dashboard from "@/pages/Dashboard";
-
 import LoginPage from "@/pages/auth/LoginPage";
 import SignupPage from "@/pages/auth/SignupPage";
 import ForgotPasswordPage from "@/pages/auth/ForgotPasswordPage";
 import WorkspaceSetupPage from "@/pages/auth/WorkspaceSetupPage";
-
 import InvitePage from "@/pages/InvitePage";
-
 import LinkedInPage from "@/pages/LinkedInPage";
 import FacebookPage from "@/pages/FacebookPage";
 import ContentStudioPage from "@/pages/ContentStudioPage";
@@ -27,7 +22,7 @@ import CampaignsPage from "@/pages/CampaignsPage";
 import FilesPage from "@/pages/FilesPage";
 import ActivityPage from "@/pages/ActivityPage";
 import SettingsPage from "@/pages/SettingsPage";
-
+import LoggedOutPage from "@/pages/auth/LoggedOutPage";
 import NotFound from "@/pages/NotFound";
 
 export default function App() {
@@ -35,20 +30,23 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* PUBLIC ROUTES */}
+          {/* PUBLIC — redirects to app if already logged in */}
           <Route element={<RedirectIfAuth />}>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           </Route>
 
-          {/* WORKSPACE SETUP */}
+          {/* Signed-out confirmation */}
+          <Route path="/logged-out" element={<LoggedOutPage />} />
+
+          {/* Workspace setup / rejoin */}
           <Route path="/setup-workspace" element={<WorkspaceSetupPage />} />
 
-          {/* INVITE LINK */}
+          {/* Invite link */}
           <Route path="/invite/:token" element={<InvitePage />} />
 
-          {/* PROTECTED APP — wrapped in AppLayout so sidebar + topbar render */}
+          {/* PROTECTED — requires auth + workspace */}
           <Route element={<RequireWorkspace />}>
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
@@ -65,7 +63,6 @@ export default function App() {
             </Route>
           </Route>
 
-          {/* 404 */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
