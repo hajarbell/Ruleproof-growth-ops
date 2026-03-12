@@ -1,3 +1,6 @@
+// src/components/layout/AppSidebar.tsx
+// Changes: members strip is now clickable → popup shows each member + their LinkedIn account(s)
+
 import { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,13 +26,20 @@ import {
   Check,
   Pencil,
   X,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
-import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  getDocs,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { AppNotification } from "@/components/layout/TopBar";
+import type { LinkedInAccount } from "@/pages/LinkedInPage";
 
-// ─── Nav ──────────────────────────────────────────────────────────────────────
 const ALL_NAV = [
   { title: "Dashboard", path: "/", icon: LayoutDashboard },
   { title: "LinkedIn", path: "/linkedin", icon: Linkedin },
@@ -106,7 +116,6 @@ function Avatar({
   );
 }
 
-// ─── Notification toast ───────────────────────────────────────────────────────
 function NotificationToast({
   message,
   onDone,
@@ -118,7 +127,6 @@ function NotificationToast({
     const t = setTimeout(onDone, 3500);
     return () => clearTimeout(t);
   }, []);
-
   return (
     <motion.div
       initial={{ opacity: 0, y: -12, scale: 0.97 }}
@@ -139,6 +147,151 @@ function NotificationToast({
   );
 }
 
+// ─── Members Popup ────────────────────────────────────────────────────────────
+function MembersPopup({ onClose }: { onClose: () => void }) {
+  const { workspace, members } = useAuth();
+  const [linkedinAccounts, setLinkedinAccounts] = useState<LinkedInAccount[]>(
+    [],
+  );
+
+  useEffect(() => {
+    if (!workspace?.id) return;
+    getDocs(
+      collection(db, "workspaces", workspace.id, "linkedinAccounts"),
+    ).then((snap) => {
+      setLinkedinAccounts(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as LinkedInAccount),
+      );
+    });
+  }, [workspace?.id]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -8, scale: 0.97 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      exit={{ opacity: 0, x: -8, scale: 0.97 }}
+      className="absolute left-full top-0 ml-2 w-72 bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden"
+      style={{ minWidth: 260 }}
+    >
+      <div className="h-0.5 w-full bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))]" />
+
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Users className="w-3.5 h-3.5 text-muted-foreground" />
+          <p className="text-xs font-semibold text-foreground">
+            {workspace?.name} · {members.length} member
+            {members.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      <div className="max-h-80 overflow-y-auto divide-y divide-border/40">
+        {members.map((m) => {
+          // Find LinkedIn accounts for this member by matching name (best we can without uid on linkedinAccounts)
+          const memberLinkedIn = linkedinAccounts.filter(
+            (acc) => acc.linkedinId && acc.type === "personal",
+          );
+          // Rough match: if only 1 account and 1 member of personal type, link them
+          // Better matching happens when linkedinId → uid mapping is stored (future)
+          return (
+            <div key={m.uid} className="px-4 py-3">
+              <div className="flex items-start gap-3">
+                {m.photoURL ? (
+                  <img
+                    src={m.photoURL}
+                    className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                    alt=""
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-[10px] font-bold text-primary-foreground flex-shrink-0">
+                    {(m.displayName || m.email || "?")
+                      .split(" ")
+                      .map((n: string) => n[0])
+                      .join("")
+                      .toUpperCase()
+                      .slice(0, 2)}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-medium text-foreground truncate">
+                      {m.displayName || m.email}
+                    </p>
+                    {m.uid === workspace?.ownerId && (
+                      <span className="text-[8px] px-1 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-bold uppercase">
+                        Owner
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {m.email}
+                  </p>
+                  <div className="mt-0.5">
+                    <RoleBadge role={m.role} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* LinkedIn accounts section */}
+      {linkedinAccounts.length > 0 && (
+        <div className="border-t border-border px-4 py-3">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Linkedin className="w-3 h-3 text-[#0077b5]" />
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+              LinkedIn Accounts ({linkedinAccounts.length})
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            {linkedinAccounts.map((acc) => (
+              <div
+                key={acc.id}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-[#0077b5]/8 border border-[#0077b5]/15"
+              >
+                {acc.avatarUrl ? (
+                  <img
+                    src={acc.avatarUrl}
+                    className="w-5 h-5 rounded-full object-cover flex-shrink-0"
+                    alt=""
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full bg-[#0077b5]/20 flex items-center justify-center flex-shrink-0">
+                    <Linkedin className="w-3 h-3 text-[#0077b5]" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-foreground font-medium truncate">
+                    {acc.name}
+                  </p>
+                  {acc.headline && (
+                    <p className="text-[9px] text-muted-foreground truncate">
+                      {acc.headline}
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`text-[8px] px-1 py-0.5 rounded font-semibold uppercase ${acc.type === "personal" ? "bg-indigo-500/10 text-indigo-400" : "bg-sky-500/10 text-sky-400"}`}
+                >
+                  {acc.type === "personal" ? "Personal" : "Company"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 // ─── Main sidebar ─────────────────────────────────────────────────────────────
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
@@ -146,8 +299,10 @@ export function AppSidebar() {
   const [nameValue, setNameValue] = useState("");
   const [savingName, setSavingName] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [showMembers, setShowMembers] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const membersRef = useRef<HTMLDivElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const { user, workspace, members, myRole, logout, renameWorkspace } =
@@ -157,7 +312,7 @@ export function AppSidebar() {
   const displayName = user?.displayName || user?.email?.split("@")[0] || "You";
   const photoURL = user?.photoURL || "";
 
-  // ─── Notification listener for toast ─────────────────────────────────────
+  // ─── Notification listener ─────────────────────────────────────────────────
   const prevCountRef = useRef(0);
   const initialRef = useRef(true);
   const prevMessagesRef = useRef<string[]>([]);
@@ -173,29 +328,39 @@ export function AppSidebar() {
         (d) => ({ id: d.id, ...d.data() }) as AppNotification,
       );
       const unread = items.filter((n) => !n.read);
-
       if (initialRef.current) {
         initialRef.current = false;
         prevCountRef.current = unread.length;
         prevMessagesRef.current = unread.map((n) => n.id);
         return;
       }
-
-      // Find truly new notifications (not in previous set)
       const newOnes = unread.filter(
         (n) => !prevMessagesRef.current.includes(n.id),
       );
-      if (newOnes.length > 0) {
-        setToast(newOnes[0].message);
-      }
+      if (newOnes.length > 0) setToast(newOnes[0].message);
       prevCountRef.current = unread.length;
       prevMessagesRef.current = unread.map((n) => n.id);
     });
   }, [workspace?.id, myRole]);
 
+  // Close members popup on outside click
+  useEffect(() => {
+    if (!showMembers) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        membersRef.current &&
+        !membersRef.current.contains(e.target as Node)
+      ) {
+        setShowMembers(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMembers]);
+
   const handleLogout = async () => {
     await logout();
-    navigate("/login");
+    navigate("/logged-out");
   };
 
   const startRename = () => {
@@ -222,7 +387,6 @@ export function AppSidebar() {
 
   return (
     <>
-      {/* ── Notification toast ── */}
       <AnimatePresence>
         {toast && (
           <NotificationToast message={toast} onDone={() => setToast(null)} />
@@ -232,18 +396,16 @@ export function AppSidebar() {
       <motion.aside
         animate={{ width: collapsed ? 68 : 252 }}
         transition={{ duration: 0.2, ease: "easeInOut" }}
-        className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-[60] overflow-hidden"
+        className="h-screen sticky top-0 flex flex-col border-r border-sidebar-border bg-sidebar z-[60] overflow-visible"
       >
         {/* ── WORKSPACE HEADER ── */}
         <div className="flex-shrink-0 px-3 pt-3 pb-2">
-          {/* Workspace name — click to rename (admin only) */}
           <div
             className={`flex items-center gap-2 mb-2.5 ${collapsed ? "justify-center" : ""}`}
           >
             <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0 shadow-sm text-primary-foreground font-bold text-sm">
               {workspace?.name?.[0]?.toUpperCase() ?? "R"}
             </div>
-
             <AnimatePresence mode="wait">
               {!collapsed && (
                 <motion.div
@@ -253,7 +415,6 @@ export function AppSidebar() {
                   className="flex-1 min-w-0"
                 >
                   {editingName ? (
-                    /* ── Inline rename input ── */
                     <div className="flex items-center gap-1">
                       <input
                         ref={nameInputRef}
@@ -285,11 +446,7 @@ export function AppSidebar() {
                       </button>
                     </div>
                   ) : (
-                    /* ── Display name with pencil on hover ── */
-                    <div
-                      className="group flex items-center gap-1 cursor-default"
-                      title={myRole === "admin" ? "Click to rename" : ""}
-                    >
+                    <div className="group flex items-center gap-1 cursor-default">
                       <p className="font-bold text-sm text-sidebar-foreground truncate leading-tight">
                         {workspace?.name ?? "RuProof"}
                       </p>
@@ -313,42 +470,58 @@ export function AppSidebar() {
             </AnimatePresence>
           </div>
 
-          {/* ── Always-visible members strip ── */}
+          {/* ── Members strip — clickable → popup ── */}
           <AnimatePresence>
             {!collapsed && members.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-2"
+                ref={membersRef}
+                className="relative"
               >
-                <div className="flex -space-x-1.5 flex-shrink-0">
-                  {members.slice(0, 5).map((m) => (
-                    <div
-                      key={m.uid}
-                      title={`${m.displayName || m.email} · ${m.role}`}
-                      className="ring-2 ring-sidebar rounded-full"
+                <button
+                  onClick={() => setShowMembers(!showMembers)}
+                  className="flex items-center gap-2 w-full hover:bg-sidebar-accent rounded-lg px-1 py-1 transition-colors"
+                >
+                  <div className="flex -space-x-1.5 flex-shrink-0">
+                    {members.slice(0, 5).map((m) => (
+                      <div
+                        key={m.uid}
+                        title={`${m.displayName || m.email} · ${m.role}`}
+                        className="ring-2 ring-sidebar rounded-full"
+                      >
+                        <Avatar
+                          name={m.displayName || m.email}
+                          photo={m.photoURL}
+                          size={5}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground flex-1 min-w-0 truncate text-left">
+                    {members.length} member{members.length !== 1 ? "s" : ""}
+                  </span>
+                  {myRole === "admin" && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate("/settings");
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-semibold transition-colors flex-shrink-0 px-1.5 py-1 rounded-md hover:bg-primary/10"
                     >
-                      <Avatar
-                        name={m.displayName || m.email}
-                        photo={m.photoURL}
-                        size={5}
-                      />
-                    </div>
-                  ))}
-                </div>
-                <span className="text-[10px] text-muted-foreground flex-1 min-w-0 truncate">
-                  {members.length} member{members.length !== 1 ? "s" : ""}
-                </span>
-                {myRole === "admin" && (
-                  <button
-                    onClick={() => navigate("/settings")}
-                    className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-semibold transition-colors flex-shrink-0 px-1.5 py-1 rounded-md hover:bg-primary/10"
-                  >
-                    <UserPlus className="w-3 h-3" />
-                    Invite
-                  </button>
-                )}
+                      <UserPlus className="w-3 h-3" />
+                      Invite
+                    </button>
+                  )}
+                </button>
+
+                {/* Members popup */}
+                <AnimatePresence>
+                  {showMembers && (
+                    <MembersPopup onClose={() => setShowMembers(false)} />
+                  )}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>
@@ -367,11 +540,7 @@ export function AppSidebar() {
               <NavLink
                 key={path}
                 to={path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
-                } ${collapsed ? "justify-center" : ""}`}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${isActive ? "bg-primary/10 text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"} ${collapsed ? "justify-center" : ""}`}
               >
                 <Icon
                   className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
@@ -424,7 +593,6 @@ export function AppSidebar() {
           </div>
         </div>
 
-        {/* ── COLLAPSE TOGGLE ── */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="flex-shrink-0 flex items-center justify-center h-7 border-t border-sidebar-border text-muted-foreground hover:bg-sidebar-accent transition-colors"
