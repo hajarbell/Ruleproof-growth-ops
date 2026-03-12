@@ -3628,16 +3628,16 @@ export default function LinkedInPage() {
             };
             addDoc(ref, { ...newAcc, createdAt: serverTimestamp() }).then(
               (docRef) => {
-                const saved: LinkedInAccount = {
+                const saved: LinkedInAccount = Object.freeze({
                   id: docRef.id,
                   ...newAcc,
                   createdAt: null,
-                };
-                // Set editingAccount FIRST — modal opens before accounts re-render
-                // so it never unmounts/remounts mid-type
-                setEditingAccount(saved);
+                });
+                // Batch: update accounts list first, THEN open modal with a stable frozen ref.
+                // The key={saved.id} on AccountModal prevents any remount when accounts changes.
                 setSelectedAccountId(docRef.id);
                 setAccounts((prev) => [...prev, saved]);
+                setEditingAccount(saved);
                 setToast({
                   msg: `✅ ${linkedinName} connected! Fill in your details below.`,
                   type: "success",
@@ -3808,6 +3808,7 @@ export default function LinkedInPage() {
         )}
         {editingAccount && (
           <AccountModal
+            key={editingAccount.id}
             existing={editingAccount}
             onClose={() => setEditingAccount(null)}
             onSave={handleSaveEdit}
