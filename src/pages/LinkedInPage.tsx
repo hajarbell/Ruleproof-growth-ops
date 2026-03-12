@@ -1180,20 +1180,24 @@ function AccountModal({
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
-    await onSave({
+    const saveData: Omit<LinkedInAccount, "id" | "createdAt"> = {
       name: name.trim(),
       headline: headline.trim(),
       profileUrl: profileUrl.trim(),
       type,
       followers: parseInt(followers) || 0,
       followersGrowth: parseInt(followersGrowth) || 0,
-      pageVisits: type === "company" ? parseInt(pageVisits) || 0 : undefined,
       avatarUrl,
       avatarInitials: initials(name),
       avatarColor,
       linkedinId: existing?.linkedinId ?? "",
       posts: existing?.posts ?? [],
-    });
+    };
+    // Only include pageVisits for company pages — never send undefined to Firestore
+    if (type === "company") {
+      saveData.pageVisits = parseInt(pageVisits) || 0;
+    }
+    await onSave(saveData);
     onClose();
   };
 
@@ -1339,7 +1343,7 @@ function AccountModal({
             {[
               { label: "Followers", val: followers, set: setFollowers },
               {
-                label: "Growth this month",
+                label: "New Followers",
                 val: followersGrowth,
                 set: setFollowersGrowth,
               },
@@ -1792,12 +1796,41 @@ function AddPostModal({
           }
         }
 
-        // ── TOP POSTS: single source of truth for all post data ──────────
+        // ── TOP POSTS: LEFT col = master post list, RIGHT col = impressions lookup ──
         // LEFT cols (0-2):  URL | publish date | Engagements  (ranked by engagement)
         // RIGHT cols (4-6): URL | publish date | Impressions  (ranked by impressions)
-        // Strategy: merge BOTH sides by URL to get full picture per post.
-        // Engagements & impressions in TOP POSTS are per-post, accurate.
-        // ENGAGEMENT tab only has daily totals — NOT used for per-post data.
+        //
+        // KEY RULE: LEFT column defines WHICH posts to import.
+        // RIGHT column is only used to look up impressions for those posts.
+        // This ensures we import exactly the posts that had engagement in this period,
+        // not extra posts that appear only in impressions ranking.
+        const topPostsIdx = sheetNames.indexOf("TOP POSTS");
+        if (topPostsIdx < 0) {
+          setImportError(
+            "No TOP POSTS sheet found. Make sure you're uploading a LinkedIn Analytics export.",
+          );
+          return;
+        }
+
+        const tpRows: any[][] = XLSX.utils.sheet_to_json(
+          wb.Sheets[wb.SheetNames[topPostsIdx]],
+          { header: 1 },
+        );
+
+        // Build impressions lookup from RIGHT col: URL -> impressions
+        const impressionsLookup: Record<string, number> = {};
+        for (const row of tpRows) {
+          const urlR = String(row?.[4] || "").trim();
+          const impR = row?.[6];
+          if (urlR.startsWith("http") && impR != null) {
+            impressionsLookup[urlR] = Math.max(
+              impressionsLookup[urlR] || 0,
+              parseNum(impR),
+            );
+          }
+        }
+
+        // Build post list from LEFT col ONLY (defines what to import)
         const postMap: Record<
           string,
           {
@@ -1807,58 +1840,34 @@ function AddPostModal({
             impressions: number;
           }
         > = {};
-        const topPostsIdx = sheetNames.indexOf("TOP POSTS");
-        if (topPostsIdx >= 0) {
-          const tpRows: any[][] = XLSX.utils.sheet_to_json(
-            wb.Sheets[wb.SheetNames[topPostsIdx]],
-            { header: 1 },
-          );
-          for (const row of tpRows) {
-            // Left side: URL + date + engagements
-            const urlL = String(row?.[0] || "").trim();
-            const dateL = row?.[1];
-            const engL = row?.[2];
-            if (urlL.startsWith("http") && dateL) {
-              if (!postMap[urlL])
-                postMap[urlL] = {
-                  url: urlL,
-                  date: fmtDate(dateL),
-                  engagements: 0,
-                  impressions: 0,
-                };
-              postMap[urlL].engagements = Math.max(
-                postMap[urlL].engagements,
-                parseNum(engL),
-              );
+        for (const row of tpRows) {
+          const urlL = String(row?.[0] || "").trim();
+          const dateL = row?.[1];
+          const engL = row?.[2];
+          if (urlL.startsWith("http") && dateL) {
+            if (!postMap[urlL]) {
+              postMap[urlL] = {
+                url: urlL,
+                date: fmtDate(dateL),
+                engagements: 0,
+                impressions: impressionsLookup[urlL] || 0, // enrich with right col
+              };
             }
-            // Right side: URL + date + impressions
-            const urlR = String(row?.[4] || "").trim();
-            const dateR = row?.[5];
-            const impR = row?.[6];
-            if (urlR.startsWith("http") && dateR) {
-              if (!postMap[urlR])
-                postMap[urlR] = {
-                  url: urlR,
-                  date: fmtDate(dateR),
-                  engagements: 0,
-                  impressions: 0,
-                };
-              postMap[urlR].impressions = Math.max(
-                postMap[urlR].impressions,
-                parseNum(impR),
-              );
-            }
+            postMap[urlL].engagements = Math.max(
+              postMap[urlL].engagements,
+              parseNum(engL),
+            );
           }
         }
 
         if (Object.keys(postMap).length === 0) {
           setImportError(
-            "No post data found in TOP POSTS sheet. Make sure you're uploading a LinkedIn Analytics export with a 'TOP POSTS' sheet.",
+            "No post data found in TOP POSTS sheet. Make sure you're uploading a LinkedIn Analytics export.",
           );
           return;
         }
 
-        // ── Data integrity check: warn if impressions look wrong ──────────
+        // ── Data integrity check ──────────────────────────────────────────
         const hasImpressions = Object.values(postMap).some(
           (p) => p.impressions > 0,
         );
@@ -2237,7 +2246,7 @@ function AddPostModal({
                         {weeklyImportMeta.totalFollowers.toLocaleString()}
                       </strong>{" "}
                       · <strong>+{weeklyImportMeta.totalFollGained}</strong> new
-                      followers in period
+                      followers gained in this period
                     </span>
                   </div>
                 )}
@@ -2727,8 +2736,9 @@ function AccountInsightsOverlay({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/75"
         onClick={onClose}
+        style={{ isolation: "isolate" }}
       >
         <motion.div
           initial={{ opacity: 0, scale: 0.88, y: 24 }}
@@ -2736,7 +2746,7 @@ function AccountInsightsOverlay({
           exit={{ opacity: 0, scale: 0.92, y: 16 }}
           transition={{ type: "spring", stiffness: 260, damping: 22 }}
           onClick={(e) => e.stopPropagation()}
-          className="bg-card border border-border rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden"
+          className="bg-card border border-border rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden relative z-[201]"
         >
           {/* Top bar */}
           <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500" />
@@ -3192,11 +3202,11 @@ function AccountCard({
               icon: Users,
             },
             {
-              label: "Growth",
+              label: "New Followers",
               value:
                 account.followersGrowth === 0
                   ? "—"
-                  : `${account.followersGrowth > 0 ? "+" : ""}${account.followersGrowth}%`,
+                  : `${account.followersGrowth > 0 ? "+" : ""}${fmtNum(Math.abs(account.followersGrowth))}`,
               icon: TrendingUp,
               positive: account.followersGrowth > 0,
               negative: account.followersGrowth < 0,
@@ -4045,13 +4055,13 @@ export default function LinkedInPage() {
                   : `${accounts.length} accounts`,
               },
               {
-                label: "Growth This Month",
+                label: "New Followers",
                 value:
                   displayGrowth === 0
                     ? "—"
-                    : `${displayGrowth > 0 ? "+" : ""}${displayGrowth}%`,
+                    : `${displayGrowth > 0 ? "+" : ""}${fmtNum(Math.abs(displayGrowth))}`,
                 icon: TrendingUp,
-                sub: "new followers",
+                sub: "followers gained in period",
                 positive: displayGrowth > 0,
                 negative: displayGrowth < 0,
               },
