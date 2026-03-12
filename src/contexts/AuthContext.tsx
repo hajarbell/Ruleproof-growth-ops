@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [myRole, setMyRole] = useState<MemberRole | null>(null);
   const [loading, setLoading] = useState(true); // auth loading
-  const [wsLoading, setWsLoading] = useState(true); // start true — stays true until first workspace fetch resolves
+  const [wsLoading, setWsLoading] = useState(false); // only true while actively fetching workspace
 
   // Holds the Firestore unsubscribe function for the live workspace listener
   const wsUnsubRef = useRef<(() => void) | null>(null);
@@ -164,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ─── Load workspace for a user ────────────────────────────────────────────
   const loadWorkspace = async (uid: string, currentUser?: User | null) => {
     const u = currentUser ?? user;
+    setWsLoading(true); // signal that workspace fetch is in progress
 
     // 1. Try user doc
     const userDoc = await getDoc(doc(db, "users", uid));
@@ -192,7 +193,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // rely on user doc having workspaceId set during joinWorkspaceByToken
     }
 
-    if (!workspaceId) return; // No workspace found — user needs setup
+    if (!workspaceId) {
+      // No workspace found — user needs setup. MUST clear wsLoading or UI hangs.
+      setWsLoading(false);
+      return;
+    }
 
     // 4. Subscribe to live updates (replaces one-time getDoc)
     subscribeToWorkspace(workspaceId, uid);
