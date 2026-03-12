@@ -503,99 +503,6 @@ function Sparkline({ posts, color }: { posts: LinkedInPost[]; color: string }) {
 }
 
 // ─── Geography Bubbles ────────────────────────────────────────────────────────
-function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const postsWithGeo = posts.filter((p) => p.topLocations?.length);
-  if (!postsWithGeo.length) {
-    return (
-      <div className="flex flex-col items-center justify-center h-32 gap-2 text-center">
-        <div className="w-8 h-8 rounded-full bg-muted/40 flex items-center justify-center">
-          <MapPin className="w-4 h-4 opacity-30 text-muted-foreground" />
-        </div>
-        <p className="text-xs text-muted-foreground italic">
-          No geography data yet
-          <br />
-          <span className="text-[10px] opacity-60">
-            Import LinkedIn analytics to unlock
-          </span>
-        </p>
-      </div>
-    );
-  }
-  const agg: Record<string, number> = {};
-  postsWithGeo.forEach((p) =>
-    p.topLocations!.forEach((l) => {
-      agg[l.name] = Math.max(agg[l.name] || 0, l.pct);
-    }),
-  );
-  const locations = Object.entries(agg)
-    .map(([name, pct]) => ({ name, pct }))
-    .sort((a, b) => b.pct - a.pct)
-    .slice(0, 6);
-  const maxPct = locations[0].pct || 1;
-
-  return (
-    <div className="flex flex-wrap justify-center items-center gap-5 py-6 px-2">
-      {locations.map((loc, i) => {
-        const size = Math.min(52 + (loc.pct / maxPct) * 64, 116);
-        const color = GEO_COLORS[i % GEO_COLORS.length];
-        const isHov = hoveredIdx === i;
-        return (
-          <motion.div
-            key={loc.name}
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: isHov ? 1.08 : 1, opacity: 1 }}
-            transition={{
-              delay: i * 0.07,
-              type: "spring",
-              stiffness: 220,
-              damping: 16,
-            }}
-            onHoverStart={() => setHoveredIdx(i)}
-            onHoverEnd={() => setHoveredIdx(null)}
-            style={{
-              width: size,
-              height: size,
-              background: `radial-gradient(circle at 36% 36%, ${color}50, ${color}18)`,
-              border: `1.5px solid ${color}50`,
-              borderRadius: "50%",
-              flexShrink: 0,
-            }}
-            className="flex flex-col items-center justify-center cursor-default relative"
-          >
-            <span
-              className="text-[11px] font-bold leading-none"
-              style={{ color }}
-            >
-              {loc.pct}%
-            </span>
-            <span
-              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
-              style={{ color: color + "cc" }}
-            >
-              {loc.name}
-            </span>
-            {isHov && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
-              >
-                <span className="font-semibold" style={{ color }}>
-                  {loc.name}
-                </span>
-                <span className="text-muted-foreground ml-1">
-                  {loc.pct}% of audience
-                </span>
-              </motion.div>
-            )}
-          </motion.div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Job Function Bars ────────────────────────────────────────────────────────
 function JobFunctionBars({ posts }: { posts: LinkedInPost[] }) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -3726,9 +3633,11 @@ export default function LinkedInPage() {
                   ...newAcc,
                   createdAt: null,
                 };
-                setAccounts((prev) => [...prev, saved]);
-                setSelectedAccountId(docRef.id);
+                // Set editingAccount FIRST — modal opens before accounts re-render
+                // so it never unmounts/remounts mid-type
                 setEditingAccount(saved);
+                setSelectedAccountId(docRef.id);
+                setAccounts((prev) => [...prev, saved]);
                 setToast({
                   msg: `✅ ${linkedinName} connected! Fill in your details below.`,
                   type: "success",
@@ -4195,6 +4104,139 @@ export default function LinkedInPage() {
           />
         </motion.div>
       )}
+    </div>
+  );
+} // ─── Geography Bubbles ────────────────────────────────────────────────────────
+function GeoBubbles({ posts }: { posts: LinkedInPost[] }) {
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+  const postsWithGeo = posts.filter((p) => p.topLocations?.length);
+  if (!postsWithGeo.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-32 gap-2 text-center">
+        <div className="w-8 h-8 rounded-full bg-muted/40 flex items-center justify-center">
+          <MapPin className="w-4 h-4 opacity-30 text-muted-foreground" />
+        </div>
+        <p className="text-xs text-muted-foreground italic">
+          No geography data yet
+          <br />
+          <span className="text-[10px] opacity-60">
+            Import LinkedIn analytics to unlock
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  const agg: Record<string, number> = {};
+  postsWithGeo.forEach((p) =>
+    p.topLocations!.forEach((l) => {
+      agg[l.name] = Math.max(agg[l.name] || 0, l.pct);
+    }),
+  );
+  const locations = Object.entries(agg)
+    .map(([name, pct]) => ({ name, pct }))
+    .sort((a, b) => b.pct - a.pct)
+    .slice(0, 6);
+
+  const maxPct = locations[0].pct;
+
+  const positions = [
+    { left: "50%", top: "48%" },
+    { left: "22%", top: "26%" },
+    { left: "78%", top: "26%" },
+    { left: "20%", top: "70%" },
+    { left: "80%", top: "70%" },
+    { left: "50%", top: "12%" },
+  ];
+
+  return (
+    <div className="relative h-72 w-full rounded-xl overflow-hidden">
+      <svg
+        className="absolute inset-0 w-full h-full opacity-[0.05]"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <defs>
+          <pattern
+            id="geo-grid"
+            width="24"
+            height="24"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 24 0 L 0 0 0 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="0.5"
+            />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#geo-grid)" />
+      </svg>
+
+      {locations.map((loc, i) => {
+        const size = Math.min(44 + (loc.pct / maxPct) * 72, 116);
+        const pos = positions[i] ?? { left: "50%", top: "50%" };
+        const color = GEO_COLORS[i % GEO_COLORS.length];
+        const isHov = hoveredIdx === i;
+
+        return (
+          <motion.div
+            key={loc.name}
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: isHov ? 1.06 : 1, opacity: 1 }}
+            transition={{
+              delay: i * 0.07,
+              type: "spring",
+              stiffness: 200,
+              damping: 16,
+            }}
+            onHoverStart={() => setHoveredIdx(i)}
+            onHoverEnd={() => setHoveredIdx(null)}
+            style={{
+              position: "absolute",
+              left: pos.left,
+              top: pos.top,
+              transform: "translate(-50%,-50%)",
+              width: size,
+              height: size,
+              background: color + "22",
+              border: `1.5px solid ${color}${isHov ? "80" : "44"}`,
+              boxShadow: "none",
+              borderRadius: "50%",
+              cursor: "default",
+              zIndex: isHov ? 10 : i,
+            }}
+            className="flex flex-col items-center justify-center"
+          >
+            <span
+              className="text-[12px] font-bold leading-none"
+              style={{ color }}
+            >
+              {loc.pct}%
+            </span>
+            <span
+              className="text-[8px] text-center px-1 leading-tight mt-0.5 font-medium"
+              style={{ color: color + "cc" }}
+            >
+              {loc.name}
+            </span>
+            {isHov && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="absolute -top-8 left-1/2 -translate-x-1/2 bg-card border border-border rounded-lg px-2 py-1 text-[9px] whitespace-nowrap shadow-lg z-20"
+              >
+                <span className="font-semibold" style={{ color }}>
+                  {loc.name}
+                </span>
+                <span className="text-muted-foreground ml-1">
+                  {loc.pct}% of audience
+                </span>
+              </motion.div>
+            )}
+          </motion.div>
+        );
+      })}
     </div>
   );
 }
