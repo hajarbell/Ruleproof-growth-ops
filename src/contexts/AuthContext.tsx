@@ -192,13 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // rely on user doc having workspaceId set during joinWorkspaceByToken
     }
 
-    if (!workspaceId) {
-      setWorkspace(null);
-      setMembers([]);
-      setMyRole(null);
-      setWsLoading(false);
-      return;
-    } // No workspace found — user needs setup
+    if (!workspaceId) return; // No workspace found — user needs setup
 
     // 4. Subscribe to live updates (replaces one-time getDoc)
     subscribeToWorkspace(workspaceId, uid);
@@ -233,44 +227,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      if (u) {
-        await loadWorkspace(u.uid, u);
-      } else {
-        // Logged out — clean up workspace listener and state
-        if (wsUnsubRef.current) {
-          wsUnsubRef.current();
-          wsUnsubRef.current = null;
+      try {
+        if (u) {
+          await setDoc(
+            doc(db, "users", u.uid),
+            {
+              email: u.email ?? "",
+              displayName: u.displayName ?? "",
+              photoURL: u.photoURL ?? "",
+            },
+            { merge: true },
+          );
+
+          await loadWorkspace(u.uid, u);
+        } else {
+          // Logged out — clean up workspace listener and state
+          if (wsUnsubRef.current) {
+            wsUnsubRef.current();
+            wsUnsubRef.current = null;
+          }
+          setWorkspace(null);
+          setMembers([]);
+          setMyRole(null);
+          setWsLoading(false);
         }
-        setWorkspace(null);
-        setMembers([]);
-        setMyRole(null);
-        setWsLoading(false); // no user = no workspace fetch needed
+      } catch (err) {
+        // loadWorkspace failed (Firestore error, network issue, etc.)
+        // MUST still clear loading states or user is stuck forever on white screen
+        console.error("AuthContext: loadWorkspace error", err);
+        setWsLoading(false);
+      } finally {
+        // Always unblock the UI no matter what
+        setLoading(false);
       }
-      setLoading(false);
     });
     return unsub;
-  }, []);
-
-  // ─── Handle Google redirect result ────────────────────────────────────────
-  useEffect(() => {
-    getRedirectResult(auth)
-      .then(async (result) => {
-        if (!result?.user) return;
-        const u = result.user;
-        await setDoc(
-          doc(db, "users", u.uid),
-          {
-            email: u.email ?? "",
-            displayName: u.displayName ?? "",
-            photoURL: u.photoURL ?? "",
-          },
-          { merge: true },
-        );
-        // onAuthStateChanged will fire and call loadWorkspace automatically
-      })
-      .catch(() => {
-        // No redirect result — normal page load
-      });
   }, []);
 
   // ─── Google sign-in (redirect flow) ───────────────────────────────────────
