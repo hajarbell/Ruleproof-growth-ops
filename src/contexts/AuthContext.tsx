@@ -109,10 +109,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [banned, setBanned] = useState(false);
 
   const wsUnsubRef = useRef<(() => void) | null>(null);
-  // Separate listener for the user's own doc — detects real-time ban
   const userUnsubRef = useRef<(() => void) | null>(null);
+  // Guard against double popup fire (React StrictMode / double click)
+  const popupInFlightRef = useRef(false);
 
-  // ─── Subscribe to workspace doc (live) ────────────────────────────────────
+  // ─── Live workspace listener ───────────────────────────────────────────────
   const subscribeToWorkspace = (workspaceId: string, uid: string) => {
     if (wsUnsubRef.current) {
       wsUnsubRef.current();
@@ -143,23 +144,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (me) {
         setMyRole(me.role);
       } else {
-        // Member was removed from workspace array — clear state immediately
-        // ProtectedRoute will redirect them to the banned/removed screen
         setWorkspace(null);
         setMembers([]);
         setMyRole(null);
       }
       setWsLoading(false);
     });
-
     wsUnsubRef.current = unsub;
   };
 
-  // ─── Subscribe to user's own doc (live) ───────────────────────────────────
-  // This is what enables INSTANT kick when banned — no page refresh needed.
-  // When owner sets banned:true, this listener fires immediately on the
-  // deleted member's client and sets banned:true in state.
-  // ProtectedRoute then renders the removed screen right away.
+  // ─── Live user doc listener — instant ban detection ───────────────────────
   const subscribeToUserDoc = (uid: string) => {
     if (userUnsubRef.current) {
       userUnsubRef.current();
@@ -168,10 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const unsub = onSnapshot(doc(db, "users", uid), (snap) => {
       if (!snap.exists()) return;
-      const data = snap.data();
-      if (data?.banned === true) {
+      if (snap.data()?.banned === true) {
         setBanned(true);
-        // Clear all workspace state instantly
         if (wsUnsubRef.current) {
           wsUnsubRef.current();
           wsUnsubRef.current = null;
@@ -181,65 +173,93 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMyRole(null);
       }
     });
-
     userUnsubRef.current = unsub;
   };
 
-  // ─── Load workspace for a user ────────────────────────────────────────────
-  // FIX: Every early-return path now calls setWsLoading(false) so the app
-  // never gets stuck on the loading screen after login.
+  // ─── Find workspace for a user — 3-pass lookup ────────────────────────────
+  // Pass 1: user doc has workspaceId saved  (fastest, normal case)
+  // Pass 2: workspaces where ownerId == uid (owner who lost their user doc)
+  // Pass 3: workspaces where a member's uid matches (member without workspaceId)
+  //
+  // After finding it, we ALWAYS write workspaceId back to the user doc so
+  // pass 1 succeeds instantly on every future login.
+  const findWorkspaceId = async (uid: string): Promise<string | null> => {
+    // Pass 1 — user doc
+    const userDoc = await getDoc(doc(db, "users", uid));
+    const saved = userDoc.data()?.workspaceId;
+    if (saved && typeof saved === "string") return saved;
+
+    // Pass 2 — owner
+    const ownerSnap = await getDocs(
+      query(collection(db, "workspaces"), where("ownerId", "==", uid)),
+    );
+    if (!ownerSnap.empty) {
+      const wsId = ownerSnap.docs[0].id;
+      await setDoc(
+        doc(db, "users", uid),
+        { workspaceId: wsId },
+        { merge: true },
+      );
+      return wsId;
+    }
+
+    // Pass 3 — member scan
+    // Firestore doesn't support array-contains on nested objects by one field,
+    // so we fetch all workspaces and filter in JS.
+    // This only runs once (until workspaceId is saved), so the cost is acceptable.
+    const allSnap = await getDocs(collection(db, "workspaces"));
+    for (const d of allSnap.docs) {
+      const data = d.data();
+      const mems: any[] = Array.isArray(data.members) ? data.members : [];
+      if (mems.some((m) => m?.uid === uid)) {
+        const wsId = d.id;
+        // Save it so we never need pass 3 again
+        await setDoc(
+          doc(db, "users", uid),
+          { workspaceId: wsId },
+          { merge: true },
+        );
+        return wsId;
+      }
+    }
+
+    return null;
+  };
+
+  // ─── Load workspace ────────────────────────────────────────────────────────
   const loadWorkspace = async (uid: string, currentUser?: User | null) => {
     const u = currentUser ?? user;
     setWsLoading(true);
 
     try {
       const userDoc = await getDoc(doc(db, "users", uid));
-      const userData = userDoc.data();
-
-      // Banned check
-      if (userData?.banned === true) {
+      if (userDoc.data()?.banned === true) {
         setBanned(true);
         setWsLoading(false);
         return;
       }
 
-      let workspaceId: string | undefined = userData?.workspaceId;
-
-      // Fallback: find workspace where ownerId == uid
-      if (!workspaceId) {
-        const q = query(
-          collection(db, "workspaces"),
-          where("ownerId", "==", uid),
-        );
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          workspaceId = snap.docs[0].id;
-          // Save it back so we find it instantly next login
-          await setDoc(doc(db, "users", uid), { workspaceId }, { merge: true });
-        }
-      }
+      const workspaceId = await findWorkspaceId(uid);
 
       if (!workspaceId) {
-        // No workspace — user needs to create one
+        // Genuinely new user — needs workspace setup
         setWsLoading(false);
         return;
       }
 
-      // Bootstrap empty members array (one-time fix for old accounts)
+      // Bootstrap empty members (one-time fix for old accounts)
       const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
       if (wsDoc.exists()) {
         const wsData = wsDoc.data();
-        const membersArr: WorkspaceMember[] = Array.isArray(wsData.members)
-          ? wsData.members.filter(
-              (m: any) => m && typeof m === "object" && m.uid,
-            )
+        const mems: WorkspaceMember[] = Array.isArray(wsData.members)
+          ? wsData.members.filter((m: any) => m?.uid)
           : [];
-        if (membersArr.length === 0) {
+        if (mems.length === 0) {
           const ownerMember: WorkspaceMember = {
             uid,
-            email: userData?.email ?? u?.email ?? "",
-            displayName: userData?.displayName ?? u?.displayName ?? "",
-            photoURL: userData?.photoURL ?? u?.photoURL ?? "",
+            email: userDoc.data()?.email ?? u?.email ?? "",
+            displayName: userDoc.data()?.displayName ?? u?.displayName ?? "",
+            photoURL: userDoc.data()?.photoURL ?? u?.photoURL ?? "",
             role: "admin",
             joinedAt: new Date().toISOString(),
           };
@@ -249,10 +269,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // Start live listener — this sets wsLoading false when data arrives
       subscribeToWorkspace(workspaceId, uid);
     } catch (err) {
-      console.error("loadWorkspace error", err);
+      console.error("loadWorkspace error:", err);
       setWsLoading(false);
     }
   };
@@ -263,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       try {
         if (u) {
-          // Merge-safe: only updates profile fields, never touches workspaceId
+          // Safe merge — never overwrites workspaceId or banned
           await setDoc(
             doc(db, "users", u.uid),
             {
@@ -274,12 +293,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             { merge: true },
           );
 
-          // Start listening to user doc for instant ban detection
           subscribeToUserDoc(u.uid);
-
           await loadWorkspace(u.uid, u);
         } else {
-          // Logged out — tear down all listeners
           if (wsUnsubRef.current) {
             wsUnsubRef.current();
             wsUnsubRef.current = null;
@@ -295,7 +311,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setWsLoading(false);
         }
       } catch (err) {
-        console.error("AuthContext error", err);
+        console.error("AuthContext error:", err);
         setWsLoading(false);
       } finally {
         setLoading(false);
@@ -304,17 +320,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsub;
   }, []);
 
-  // ─── Google sign-in (popup) ────────────────────────────────────────────────
+  // ─── Google popup — guarded against double-fire ───────────────────────────
   const signInWithGoogle = async (
     inviteToken?: string,
     inviteRole?: string,
   ): Promise<User | null> => {
-    if (inviteToken) {
-      sessionStorage.setItem("pendingInviteToken", inviteToken);
-      sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
+    if (popupInFlightRef.current) return null; // already opening
+    popupInFlightRef.current = true;
+    try {
+      if (inviteToken) {
+        sessionStorage.setItem("pendingInviteToken", inviteToken);
+        sessionStorage.setItem("pendingInviteRole", inviteRole ?? "guest");
+      }
+      const result = await signInWithPopup(auth, new GoogleAuthProvider());
+      return result.user;
+    } catch (err: any) {
+      // cancelled-popup-request is benign — user closed or another popup opened
+      if (
+        err?.code !== "auth/cancelled-popup-request" &&
+        err?.code !== "auth/popup-closed-by-user"
+      ) {
+        throw err;
+      }
+      return null;
+    } finally {
+      popupInFlightRef.current = false;
     }
-    const result = await signInWithPopup(auth, new GoogleAuthProvider());
-    return result.user;
   };
 
   const signInWithEmail = async (email: string, password: string) => {
@@ -399,11 +430,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     invitedRole?: MemberRole,
   ): Promise<{ workspaceName: string; role: MemberRole }> => {
     if (!user) throw new Error("Not logged in");
-    const q = query(
-      collection(db, "workspaces"),
-      where("inviteToken", "==", token),
+    const snap = await getDocs(
+      query(collection(db, "workspaces"), where("inviteToken", "==", token)),
     );
-    const snap = await getDocs(q);
     if (snap.empty) throw new Error("Invalid or expired invite link.");
 
     const wsDoc = snap.docs[0];
@@ -456,27 +485,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  // ─── Remove member — instant kick via user doc listener ───────────────────
-  // Sets banned:true on the user's doc. Their onSnapshot listener (subscribeToUserDoc)
-  // fires immediately on their client — no page refresh needed. They see the
-  // "Access Removed" screen within milliseconds.
   const removeMember = async (uid: string) => {
     if (!workspace) return;
     const member = members.find((m) => m.uid === uid);
     if (!member) return;
-
-    // Remove from workspace members array
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: arrayRemove(member),
     });
-
-    // Set banned:true — their live user doc listener fires this instantly
+    // banned:true triggers instant kick via their live userDoc listener
     await setDoc(
       doc(db, "users", uid),
-      {
-        workspaceId: null,
-        banned: true,
-      },
+      { workspaceId: null, banned: true },
       { merge: true },
     );
   };
