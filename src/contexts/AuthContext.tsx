@@ -192,7 +192,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // rely on user doc having workspaceId set during joinWorkspaceByToken
     }
 
-    if (!workspaceId) return; // No workspace found — user needs setup
+    if (!workspaceId) {
+      setWorkspace(null);
+      setMembers([]);
+      setMyRole(null);
+      setWsLoading(false);
+      return;
+    } // No workspace found — user needs setup
 
     // 4. Subscribe to live updates (replaces one-time getDoc)
     subscribeToWorkspace(workspaceId, uid);
