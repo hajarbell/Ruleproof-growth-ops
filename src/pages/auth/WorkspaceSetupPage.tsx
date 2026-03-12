@@ -21,8 +21,6 @@ export default function WorkspaceSetupPage() {
   const [name, setName] = useState("");
   const [type, setType] = useState<"personal" | "agency">("personal");
   const [error, setError] = useState("");
-
-  // ── Check if user already has a workspace ──────────────────────────────────
   const [checking, setChecking] = useState(true);
   const [existingWsName, setExistingWsName] = useState<string | null>(null);
   const [rejoining, setRejoining] = useState(false);
@@ -34,8 +32,22 @@ export default function WorkspaceSetupPage() {
     }
 
     const findExisting = async () => {
+      // ── PRIORITY: if there's a pending invite, go there instead ──────────
+      // This fixes the case where an invited member logs in via Google,
+      // gets redirected here, but should actually join the invited workspace.
+      const pendingToken = sessionStorage.getItem("pendingInviteToken");
+      const pendingRole =
+        sessionStorage.getItem("pendingInviteRole") ?? "guest";
+      if (pendingToken) {
+        // Don't clear sessionStorage here — InvitePage will handle it
+        navigate(`/invite/${pendingToken}?role=${pendingRole}`, {
+          replace: true,
+        });
+        return;
+      }
+
       try {
-        // Check by ownerId first
+        // Check by ownerId first (oldest workspace wins)
         const ownerSnap = await getDocs(
           query(collection(db, "workspaces"), where("ownerId", "==", user.uid)),
         );
@@ -49,7 +61,8 @@ export default function WorkspaceSetupPage() {
           setChecking(false);
           return;
         }
-        // Check member scan
+
+        // Member scan
         const allSnap = await getDocs(collection(db, "workspaces"));
         for (const d of allSnap.docs) {
           const mems: any[] = Array.isArray(d.data().members)
@@ -72,12 +85,11 @@ export default function WorkspaceSetupPage() {
 
   const handleRejoin = async () => {
     setRejoining(true);
-    // createWorkspace in AuthContext detects existing workspace and subscribes to it
     await createWorkspace("__rejoin__");
     navigate("/");
   };
 
-  // ── Banned screen ──────────────────────────────────────────────────────────
+  // ── Banned ─────────────────────────────────────────────────────────────────
   if (banned) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -101,15 +113,14 @@ export default function WorkspaceSetupPage() {
             }}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
           >
-            <LogOut className="w-4 h-4" />
-            Back to login
+            <LogOut className="w-4 h-4" /> Back to login
           </button>
         </div>
       </div>
     );
   }
 
-  // ── Loading check ──────────────────────────────────────────────────────────
+  // ── Checking ───────────────────────────────────────────────────────────────
   if (checking) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -125,7 +136,7 @@ export default function WorkspaceSetupPage() {
     );
   }
 
-  // ── REJOIN SCREEN — user has an existing workspace ─────────────────────────
+  // ── Rejoin — user has an existing workspace ────────────────────────────────
   if (existingWsName) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -134,7 +145,6 @@ export default function WorkspaceSetupPage() {
           animate={{ opacity: 1, y: 0 }}
           className="w-full max-w-md"
         >
-          {/* Logo */}
           <div className="flex items-center gap-3 justify-center mb-8">
             <div className="w-10 h-10 rounded-xl gradient-primary flex items-center justify-center">
               <span className="text-lg font-bold text-primary-foreground">
@@ -152,13 +162,11 @@ export default function WorkspaceSetupPage() {
           </div>
 
           <div className="glass rounded-2xl p-8 shadow-soft border border-border/50 text-center">
-            {/* Workspace icon */}
             <div className="w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mx-auto mb-5 shadow-lg">
               <span className="text-2xl font-bold text-primary-foreground">
                 {existingWsName[0]?.toUpperCase() ?? "R"}
               </span>
             </div>
-
             <h1 className="text-2xl font-bold font-display text-foreground mb-2">
               Welcome back!
             </h1>
@@ -201,7 +209,7 @@ export default function WorkspaceSetupPage() {
     );
   }
 
-  // ── CREATE SCREEN — genuinely new user ────────────────────────────────────
+  // ── Create — genuinely new user ────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
