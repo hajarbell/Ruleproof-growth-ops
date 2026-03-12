@@ -99,6 +99,18 @@ function generateToken() {
   );
 }
 
+// ─── Reads workspaceId regardless of capitalisation ──────────────────────────
+// Firestore is case-sensitive so "workspaceId" and "workspaceID" are different
+// fields. This helper checks both and returns whichever exists.
+function getWorkspaceIdFromDoc(
+  data: Record<string, any> | undefined,
+): string | null {
+  if (!data) return null;
+  // Prefer lowercase (canonical), fall back to uppercase D variant
+  const id = data["workspaceId"] ?? data["workspaceID"] ?? null;
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -110,7 +122,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const wsUnsubRef = useRef<(() => void) | null>(null);
   const userUnsubRef = useRef<(() => void) | null>(null);
-  // Guard against double popup fire (React StrictMode / double click)
   const popupInFlightRef = useRef(false);
 
   // ─── Live workspace listener ───────────────────────────────────────────────
@@ -153,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     wsUnsubRef.current = unsub;
   };
 
-  // ─── Live user doc listener — instant ban detection ───────────────────────
+  // ─── Live user doc listener — instant ban ─────────────────────────────────
   const subscribeToUserDoc = (uid: string) => {
     if (userUnsubRef.current) {
       userUnsubRef.current();
@@ -176,18 +187,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     userUnsubRef.current = unsub;
   };
 
-  // ─── Find workspace for a user — 3-pass lookup ────────────────────────────
-  // Pass 1: user doc has workspaceId saved  (fastest, normal case)
-  // Pass 2: workspaces where ownerId == uid (owner who lost their user doc)
-  // Pass 3: workspaces where a member's uid matches (member without workspaceId)
-  //
-  // After finding it, we ALWAYS write workspaceId back to the user doc so
-  // pass 1 succeeds instantly on every future login.
+  // ─── 3-pass workspace finder ───────────────────────────────────────────────
+  // Pass 1: user doc (handles both workspaceId and workspaceID)
+  // Pass 2: workspaces where ownerId == uid
+  // Pass 3: full scan — finds any workspace with this uid in members array
+  // After pass 2 or 3, writes canonical workspaceId back so pass 1 always wins.
   const findWorkspaceId = async (uid: string): Promise<string | null> => {
-    // Pass 1 — user doc
+    // Pass 1
     const userDoc = await getDoc(doc(db, "users", uid));
-    const saved = userDoc.data()?.workspaceId;
-    if (saved && typeof saved === "string") return saved;
+    const fromDoc = getWorkspaceIdFromDoc(userDoc.data());
+    if (fromDoc) return fromDoc;
 
     // Pass 2 — owner
     const ownerSnap = await getDocs(
@@ -203,17 +212,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return wsId;
     }
 
-    // Pass 3 — member scan
-    // Firestore doesn't support array-contains on nested objects by one field,
-    // so we fetch all workspaces and filter in JS.
-    // This only runs once (until workspaceId is saved), so the cost is acceptable.
+    // Pass 3 — member scan (JS-side filter because Firestore can't query nested uid)
     const allSnap = await getDocs(collection(db, "workspaces"));
     for (const d of allSnap.docs) {
-      const data = d.data();
-      const mems: any[] = Array.isArray(data.members) ? data.members : [];
+      const mems: any[] = Array.isArray(d.data().members)
+        ? d.data().members
+        : [];
       if (mems.some((m) => m?.uid === uid)) {
         const wsId = d.id;
-        // Save it so we never need pass 3 again
         await setDoc(
           doc(db, "users", uid),
           { workspaceId: wsId },
@@ -240,14 +246,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const workspaceId = await findWorkspaceId(uid);
-
       if (!workspaceId) {
-        // Genuinely new user — needs workspace setup
         setWsLoading(false);
         return;
       }
 
-      // Bootstrap empty members (one-time fix for old accounts)
+      // Bootstrap empty members array (one-time fix for old accounts)
       const wsDoc = await getDoc(doc(db, "workspaces", workspaceId));
       if (wsDoc.exists()) {
         const wsData = wsDoc.data();
@@ -282,7 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(u);
       try {
         if (u) {
-          // Safe merge — never overwrites workspaceId or banned
+          // merge:true means workspaceId / banned are NEVER overwritten here
           await setDoc(
             doc(db, "users", u.uid),
             {
@@ -325,7 +329,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     inviteToken?: string,
     inviteRole?: string,
   ): Promise<User | null> => {
-    if (popupInFlightRef.current) return null; // already opening
+    if (popupInFlightRef.current) return null;
     popupInFlightRef.current = true;
     try {
       if (inviteToken) {
@@ -335,7 +339,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await signInWithPopup(auth, new GoogleAuthProvider());
       return result.user;
     } catch (err: any) {
-      // cancelled-popup-request is benign — user closed or another popup opened
       if (
         err?.code !== "auth/cancelled-popup-request" &&
         err?.code !== "auth/popup-closed-by-user"
@@ -403,6 +406,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       members: [ownerMember],
       createdAt: serverTimestamp(),
     });
+    // Always write canonical lowercase workspaceId
     await setDoc(
       doc(db, "users", user.uid),
       { workspaceId: wsRef.id },
@@ -492,7 +496,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await updateDoc(doc(db, "workspaces", workspace.id), {
       members: arrayRemove(member),
     });
-    // banned:true triggers instant kick via their live userDoc listener
     await setDoc(
       doc(db, "users", uid),
       { workspaceId: null, banned: true },
