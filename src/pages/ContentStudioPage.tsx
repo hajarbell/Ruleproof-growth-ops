@@ -1267,6 +1267,10 @@ function EditorModal({
           "| fields:",
           Object.keys(snap.data() || {}),
         );
+        console.log(
+          "[Publish] raw accessToken value:",
+          JSON.stringify(snap.data()?.accessToken)?.slice(0, 30),
+        );
       } else {
         console.warn(
           "[Publish] workspace is null — cannot do Firestore fallback",

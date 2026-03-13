@@ -1,32 +1,14 @@
-// api/linkedin/callback.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const admin = require("firebase-admin");
-
-let db: any = null;
-
-function initAdmin() {
-  if (db) return db;
-  if (!admin.apps.length) {
-    const serviceAccount = JSON.parse(
-      process.env.FIREBASE_SERVICE_ACCOUNT || "{}",
-    );
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-  }
-  db = admin.firestore();
-  return db;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  const { code, error, state } = req.query;
+  const { code, error } = req.query;
   const APP_URL = process.env.APP_URL || "http://localhost:8080";
-  const workspaceId = typeof state === "string" ? state : "";
 
   if (error || !code) {
-    return res.redirect(`${APP_URL}/linkedin?error=oauth_denied`);
+    console.log(
+      "Error during LinkedIn OAuth callback:",
+      error || "No code provided",
+    );
   }
 
   try {
@@ -34,6 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const CLIENT_SECRET = process.env.LINKEDIN_CLIENT_SECRET!;
     const REDIRECT_URI = process.env.LINKEDIN_REDIRECT_URI!;
 
+    // Exchange code for access token
     const tokenRes = await fetch(
       "https://www.linkedin.com/oauth/v2/accessToken",
       {
@@ -50,76 +33,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
 
     const tokenData = await tokenRes.json();
+
     if (!tokenData.access_token) {
-      console.error("Token exchange failed:", JSON.stringify(tokenData));
       return res.redirect(`${APP_URL}/linkedin?error=token_failed`);
     }
 
-    const accessToken: string = tokenData.access_token;
-    const expiresIn: number = tokenData.expires_in ?? 5183944;
-    const expiresAt = Date.now() + expiresIn * 1000;
-
+    // Get user profile
     const profileRes = await fetch("https://api.linkedin.com/v2/userinfo", {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
+
     const profile = await profileRes.json();
 
-    const linkedinId: string = profile.sub || "";
-    const name: string = profile.name || "";
-    const headline: string = profile.headline || "";
-    const avatar: string = profile.picture || "";
-    const email: string = profile.email || "";
-
-    if (workspaceId && linkedinId) {
-      const firestore = initAdmin();
-
-      await firestore
-        .collection("workspaces")
-        .doc(workspaceId)
-        .collection("linkedinTokens")
-        .doc(linkedinId)
-        .set({
-          linkedinId,
-          accessToken,
-          expiresAt,
-          name,
-          email,
-          updatedAt: Date.now(),
-        });
-
-      try {
-        await firestore
-          .collection("workspaces")
-          .doc(workspaceId)
-          .collection("notifications")
-          .add({
-            type: "account_connected",
-            message: `${name} connected their LinkedIn account.`,
-            personalMessage: `✅ Your LinkedIn account (${name}) is now connected to this workspace!`,
-            actorName: name,
-            actorLinkedinId: linkedinId,
-            read: false,
-            createdAt: new Date().toISOString(),
-          });
-      } catch (notifErr) {
-        console.warn("Notification write failed (non-fatal):", notifErr);
-      }
-    }
-
     const params = new URLSearchParams({
-      linkedin_name: name,
-      linkedin_headline: headline,
-      linkedin_avatar: avatar,
-      linkedin_email: email,
-      linkedin_id: linkedinId,
+      linkedin_name: profile.name || "",
+      linkedin_headline: profile.headline || "",
+      linkedin_avatar: profile.picture || "",
+      linkedin_email: profile.email || "",
+      linkedin_id: profile.sub || "",
+      token_expires_in: String(tokenData.expires_in || 5183944),
     });
 
-    return res.redirect(`${APP_URL}/linkedin?${params.toString()}`);
-  } catch (err: any) {
-    console.error("LinkedIn OAuth callback error:", err?.message || err);
-    return res.status(500).json({
-      error: "server_error",
-      message: err?.message || String(err),
-    });
+    // Pass token as hash fragment — avoids URL encoding issues with + and = chars
+    // Hash is never sent to server and is read directly by JS
+    const tokenHash = encodeURIComponent(tokenData.access_token || "");
+
+    return res.redirect(
+      `${APP_URL}/linkedin?${params.toString()}#t=${tokenHash}`,
+    );
+  } catch (err) {
+    return res.redirect(`${APP_URL}/linkedin?error=server_error`);
   }
 }
