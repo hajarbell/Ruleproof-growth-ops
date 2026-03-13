@@ -106,6 +106,7 @@ interface SheetColumn {
 interface Post {
   id: string;
   linkedinAccountId: string;
+  linkedinId?: string;
   account: string;
   accountAvatar: string;
   accountColor: string;
@@ -314,18 +315,37 @@ const STATUS_HEX: Record<PostStatus, string> = {
 };
 
 const CARD_COLORS = [
+  // Whites / neutrals
   "#ffffff",
-  "#f8fafc",
-  "#fef3c7",
-  "#fce7f3",
-  "#ede9fe",
-  "#dbeafe",
-  "#d1fae5",
-  "#fee2e2",
-  "#fef9c3",
-  "#e0f2fe",
-  "#f0fdf4",
-  "#fdf4ff",
+  "#f1f5f9",
+  // Baby pink / rose
+  "#ffd6e0",
+  "#ffb3c6",
+  "#ff85a1",
+  // Baby blue / sky
+  "#bde0fe",
+  "#90caf9",
+  "#64b5f6",
+  // Mint / green
+  "#b7e4c7",
+  "#95d5b2",
+  "#74c69d",
+  // Lavender / purple
+  "#e0aaff",
+  "#c77dff",
+  "#9d4edd",
+  // Soft yellow
+  "#fff3b0",
+  "#fee440",
+  "#ffd60a",
+  // Peach / coral
+  "#ffd7ba",
+  "#ffb347",
+  "#ff9f1c",
+  // Sky teal
+  "#a0e7e5",
+  "#7ee8e6",
+  "#48cae4",
 ];
 
 // ── THIS was floating loose — now correctly declared at module level ───────────
@@ -547,14 +567,41 @@ function PostCard({
   onClick,
   onArchive,
   onStatusChange,
+  onDragStartCard,
+  onDragEndCard,
 }: {
   post: Post;
   onClick: () => void;
   onArchive?: (id: string) => void;
   onStatusChange?: (id: string, status: PostStatus) => void;
+  onDragStartCard?: (id: string) => void;
+  onDragEndCard?: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const [isDark, setIsDark] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [countdown, setCountdown] = useState("");
+
+  useEffect(() => {
+    if (post.status !== "Scheduled" || !post.scheduledDate) return;
+    const update = () => {
+      const target = new Date(
+        `${post.scheduledDate}T${post.scheduledTime || "09:00"}:00`,
+      );
+      const diff = target.getTime() - Date.now();
+      if (diff <= 0) {
+        setCountdown("Due now");
+        return;
+      }
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      setCountdown(d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`);
+    };
+    update();
+    const t = setInterval(update, 60000);
+    return () => clearInterval(t);
+  }, [post.status, post.scheduledDate, post.scheduledTime]);
   const menuRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -582,12 +629,8 @@ function PostCard({
 
   const bgColors = CARD_STATUS_BG_HEX[post.status];
   const cardBg = post.cardColor || (isDark ? bgColors.dark : bgColors.light);
-
-  // content preview: first 120 chars
   const preview =
     post.content.slice(0, 120) + (post.content.length > 120 ? "…" : "");
-
-  // progress dots: 4 steps based on content length
   const dots = Math.min(4, Math.ceil((post.content.length / 600) * 4));
 
   return (
@@ -595,16 +638,32 @@ function PostCard({
       ref={cardRef}
       layout
       initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
+      animate={{
+        opacity: 1,
+        y: 0,
+        rotate: isDragging ? -2 : 0,
+        scale: isDragging ? 1.03 : 1,
+      }}
       exit={{ opacity: 0, scale: 0.95 }}
-      className="rounded-2xl overflow-visible shadow-sm hover:shadow-md transition-all cursor-pointer group relative select-none"
+      transition={{ rotate: { duration: 0.15 }, scale: { duration: 0.15 } }}
+      className="rounded-2xl overflow-visible shadow-sm hover:shadow-md transition-all cursor-grab active:cursor-grabbing group relative select-none"
       style={{
         backgroundColor: cardBg,
         border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+        opacity: isDragging ? 0.5 : 1,
+        boxShadow: isDragging ? "0 24px 48px rgba(0,0,0,0.25)" : undefined,
+        transform: isDragging ? "rotate(-1.5deg) scale(1.04)" : undefined,
+        transition: "opacity 0.15s, box-shadow 0.15s",
       }}
       draggable
       onDragStart={(e) => {
         (e as unknown as DragEvent).dataTransfer?.setData("postId", post.id);
+        setIsDragging(true);
+        onDragStartCard?.(post.id);
+      }}
+      onDragEnd={() => {
+        setIsDragging(false);
+        onDragEndCard?.();
       }}
     >
       {/* Left accent stripe by status */}
@@ -617,8 +676,8 @@ function PostCard({
         {/* Top: title + menu */}
         <div className="flex items-start justify-between gap-2 mb-2">
           <h4
-            className="text-[13px] font-semibold leading-snug flex-1 line-clamp-2"
-            style={{ color: isDark ? "#f1f5f9" : "#1e293b" }}
+            className="text-[14px] font-bold leading-snug flex-1 line-clamp-2"
+            style={{ color: isDark ? "#f8fafc" : "#0f172a" }}
           >
             {post.theme || post.content.slice(0, 50) || "Untitled"}
           </h4>
@@ -724,8 +783,8 @@ function PostCard({
         {/* Content preview */}
         {preview && (
           <p
-            className="text-[11px] leading-relaxed mb-3 line-clamp-2"
-            style={{ color: isDark ? "#94a3b8" : "#64748b" }}
+            className="text-[12px] leading-relaxed mb-3 line-clamp-2"
+            style={{ color: isDark ? "#cbd5e1" : "#334155" }}
           >
             {preview}
           </p>
@@ -750,6 +809,21 @@ function PostCard({
           ))}
         </div>
 
+        {/* Countdown for scheduled posts */}
+        {post.status === "Scheduled" && countdown && (
+          <div className="flex items-center gap-1 mb-2">
+            <Clock
+              className="w-3 h-3 flex-shrink-0"
+              style={{ color: STATUS_HEX["Scheduled"] }}
+            />
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: STATUS_HEX["Scheduled"] }}
+            >
+              {countdown}
+            </span>
+          </div>
+        )}
         {/* Bottom: account avatar + name + date */}
         <div className="flex items-center gap-2.5">
           <div
@@ -775,14 +849,14 @@ function PostCard({
           </div>
           <div className="flex-1 min-w-0">
             <p
-              className="text-[11px] font-semibold truncate"
-              style={{ color: isDark ? "#cbd5e1" : "#475569" }}
+              className="text-[12px] font-semibold truncate"
+              style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}
             >
               {post.account}
             </p>
             <p
-              className="text-[10px]"
-              style={{ color: isDark ? "#64748b" : "#94a3b8" }}
+              className="text-[11px]"
+              style={{ color: isDark ? "#94a3b8" : "#475569" }}
             >
               {post.scheduledDate
                 ? post.scheduledDate
@@ -809,7 +883,11 @@ function PostCard({
 
 // ─── Google Calendar helpers ──────────────────────────────────────────────────
 function buildGCalUrl(post: Post, memberEmail?: string): string {
-  const title = encodeURIComponent(`📝 ${post.theme} — ${post.account}`);
+  const assigneeName =
+    post.assignedTo && post.assignedTo !== "—" ? ` (${post.assignedTo})` : "";
+  const title = encodeURIComponent(
+    `👤${assigneeName} — ${post.theme || post.content.slice(0, 40)}`,
+  );
   const date = post.scheduledDate.replace(/-/g, "");
   const time = (post.scheduledTime || "09:00").replace(":", "") + "00";
   const dtStart = `${date}T${time}`;
@@ -845,20 +923,32 @@ function AddEventPanel({
   onClose,
   onSave,
   members,
+  existingEvent,
 }: {
   date: string;
   onClose: () => void;
   onSave: (ev: CalEvent) => void;
   members: WorkspaceMember[];
+  existingEvent?: CalEvent;
 }) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [time, setTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("10:00");
-  const [assignedUid, setAssignedUid] = useState(members[0]?.uid ?? "");
-  const [color, setColor] = useState<EventColor>("violet");
-  const [reminders, setReminders] = useState<number[]>([15]);
-  const [bellSound, setBellSound] = useState<BellSound>("chime");
+  const [title, setTitle] = useState(existingEvent?.title ?? "");
+  const [description, setDescription] = useState(
+    existingEvent?.description ?? "",
+  );
+  const [time, setTime] = useState(existingEvent?.time ?? "09:00");
+  const [endTime, setEndTime] = useState(existingEvent?.endTime ?? "10:00");
+  const [assignedUid, setAssignedUid] = useState(
+    existingEvent?.assignedToUid ?? members[0]?.uid ?? "",
+  );
+  const [color, setColor] = useState<EventColor>(
+    existingEvent?.color ?? "violet",
+  );
+  const [reminders, setReminders] = useState<number[]>(
+    existingEvent?.reminders ?? [15],
+  );
+  const [bellSound, setBellSound] = useState<BellSound>(
+    existingEvent?.bellSound ?? "chime",
+  );
   const [saving, setSaving] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -892,7 +982,7 @@ function AddEventPanel({
     setSaving(true);
     BELL_SOUNDS[bellSound]();
     const ev: CalEvent = {
-      id: Date.now().toString(),
+      id: existingEvent?.id ?? Date.now().toString(),
       title: title.trim(),
       description,
       date,
@@ -1103,6 +1193,50 @@ function AddEventPanel({
 }
 
 // ─── Editor Modal ─────────────────────────────────────────────────────────────
+
+// ── Image carousel for LinkedIn preview ──────────────────────────────────────
+function ImageCarousel({ files }: { files: Array<{ previewUrl: string }> }) {
+  const [slide, setSlide] = React.useState(0);
+  return (
+    <div className="relative border-t border-[#e0ddd8] dark:border-[#38434f]">
+      <img
+        src={files[slide].previewUrl}
+        alt=""
+        className="w-full object-cover block"
+        style={{ maxHeight: "480px", minHeight: "200px" }}
+      />
+      {slide > 0 && (
+        <button
+          onClick={() => setSlide((s) => s - 1)}
+          className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center text-lg"
+        >
+          ‹
+        </button>
+      )}
+      {slide < files.length - 1 && (
+        <button
+          onClick={() => setSlide((s) => s + 1)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 text-white flex items-center justify-center text-lg"
+        >
+          ›
+        </button>
+      )}
+      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1">
+        {files.map((_, i) => (
+          <div
+            key={i}
+            onClick={() => setSlide(i)}
+            className={`rounded-full cursor-pointer transition-all ${i === slide ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`}
+          />
+        ))}
+      </div>
+      <div className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+        {slide + 1} / {files.length}
+      </div>
+    </div>
+  );
+}
+
 function EditorModal({
   post,
   onClose,
@@ -1119,8 +1253,13 @@ function EditorModal({
   const isNew = !post;
   const defaultAccount = linkedinAccounts[0];
   const { workspace } = useAuth();
+  const [showFullPreview, setShowFullPreview] = React.useState(false);
 
   const [content, setContent] = useState(post?.content ?? "");
+  // Reset preview expand when content changes
+  React.useEffect(() => {
+    setShowFullPreview(false);
+  }, [content]);
   const [theme, setTheme] = useState(post?.theme ?? "");
   const [selAccId, setSelAccId] = useState(
     post?.linkedinAccountId ?? defaultAccount?.id ?? "",
@@ -1155,12 +1294,14 @@ function EditorModal({
     post?.assignmentComment ?? "",
   );
   const [emojiTab, setEmojiTab] = useState<"emoji" | "chars">("emoji");
-  const [uploadedFile, setUploadedFile] = useState<{
-    name: string;
-    type: string;
-    previewUrl: string;
-    size: number;
-  } | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<
+    Array<{ name: string; type: string; previewUrl: string; size: number }>
+  >([]);
+  // Keep uploadedFile as alias to first file for backward compat
+  const uploadedFile = uploadedFiles[0] ?? null;
+  const setUploadedFile = (
+    f: { name: string; type: string; previewUrl: string; size: number } | null,
+  ) => setUploadedFiles(f ? [f] : []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const emojiPanelRef = useRef<HTMLDivElement>(null);
@@ -1397,8 +1538,12 @@ function EditorModal({
       accountBio: selAcc.headline,
       accountFollowers: selAcc.followers,
       accountAvatarUrl: selAcc.avatarUrl || "",
-      ...(uploadedFile?.previewUrl
-        ? { uploadedFileUrl: uploadedFile.previewUrl }
+      linkedinId: selAcc.linkedinId || "", // needed by cron for token lookup
+      ...(uploadedFiles.length > 0
+        ? {
+            uploadedFileUrl: uploadedFiles[0].previewUrl,
+            uploadedFileCount: uploadedFiles.length,
+          }
         : {}),
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
@@ -1821,6 +1966,96 @@ function EditorModal({
     "°",
     "¶",
     "§",
+    // Bold text starters (LinkedIn viral formatting)
+    "𝗔",
+    "𝗕",
+    "𝗖",
+    "𝗗",
+    "𝗘",
+    "𝗙",
+    "𝗚",
+    "𝗛",
+    "𝗜",
+    "𝗝",
+    "𝗞",
+    "𝗟",
+    "𝗠",
+    "𝗡",
+    "𝗢",
+    "𝗣",
+    "𝗤",
+    "𝗥",
+    "𝗦",
+    "𝗧",
+    // Italic text
+    "𝘈",
+    "𝘉",
+    "𝘊",
+    "𝘋",
+    "𝘌",
+    "𝘍",
+    "𝘎",
+    "𝘏",
+    "𝘐",
+    "𝘑",
+    "𝘒",
+    "𝘓",
+    "𝘔",
+    "𝘕",
+    "𝘖",
+    "𝘗",
+    "𝘘",
+    "𝘙",
+    "𝘚",
+    "𝘛",
+    // Superscript numbers
+    "⁰",
+    "¹",
+    "²",
+    "³",
+    "⁴",
+    "⁵",
+    "⁶",
+    "⁷",
+    "⁸",
+    "⁹",
+    "⁺",
+    "⁻",
+    "⁼",
+    "⁽",
+    "⁾",
+    // Hearts & engagement
+    "❤️",
+    "🧡",
+    "💛",
+    "💚",
+    "💙",
+    "💜",
+    "🖤",
+    "🤍",
+    "🤎",
+    "💗",
+    "💓",
+    "💞",
+    "💕",
+    "💟",
+    "❣️",
+    // Hands & gestures
+    "👉",
+    "👈",
+    "👆",
+    "👇",
+    "☝️",
+    "👍",
+    "👎",
+    "🙌",
+    "👏",
+    "🤝",
+    "💪",
+    "🙏",
+    "✌️",
+    "🤞",
+    "👌",
   ];
 
   return (
@@ -2223,65 +2458,84 @@ function EditorModal({
 
               {/* File upload */}
               <div className="border border-dashed border-border rounded-xl p-3">
-                <div className="flex items-center gap-3">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*,.pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.pdf,video/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (!files.length) return;
+                    const loaded: typeof uploadedFiles = [];
+                    files.forEach((file) => {
                       const url = URL.createObjectURL(file);
-                      setUploadedFile({
+                      loaded.push({
                         name: file.name,
                         type: file.type,
                         previewUrl: url,
                         size: file.size,
                       });
-                    }}
-                  />
-                  {uploadedFile ? (
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      {uploadedFile.type.startsWith("image/") ? (
-                        <img
-                          src={uploadedFile.previewUrl}
-                          alt=""
-                          className="w-12 h-12 rounded-lg object-cover flex-shrink-0 border border-border"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center flex-shrink-0">
-                          <span className="text-xl">📄</span>
+                    });
+                    setUploadedFiles((prev) => [...prev, ...loaded]);
+                    e.target.value = "";
+                  }}
+                />
+                {uploadedFiles.length > 0 ? (
+                  <div className="space-y-2">
+                    {/* Thumbnail strip */}
+                    <div className="flex gap-2 flex-wrap">
+                      {uploadedFiles.map((f, i) => (
+                        <div key={i} className="relative group/thumb">
+                          {f.type.startsWith("image/") ? (
+                            <img
+                              src={f.previewUrl}
+                              alt=""
+                              className="w-14 h-14 rounded-lg object-cover border border-border"
+                            />
+                          ) : f.type.startsWith("video/") ? (
+                            <div className="w-14 h-14 rounded-lg bg-purple-50 dark:bg-purple-900/20 flex items-center justify-center">
+                              <span className="text-2xl">🎬</span>
+                            </div>
+                          ) : (
+                            <div className="w-14 h-14 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+                              <span className="text-2xl">📄</span>
+                            </div>
+                          )}
+                          <button
+                            onClick={() =>
+                              setUploadedFiles((prev) =>
+                                prev.filter((_, j) => j !== i),
+                              )
+                            }
+                            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-destructive text-white text-[10px] items-center justify-center hidden group-hover/thumb:flex"
+                          >
+                            ×
+                          </button>
                         </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-foreground truncate">
-                          {uploadedFile.name}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {(uploadedFile.size / 1024).toFixed(0)} KB ·{" "}
-                          {uploadedFile.type.startsWith("image/")
-                            ? "Image"
-                            : "PDF"}
-                        </p>
-                      </div>
+                      ))}
+                      {/* Add more */}
                       <button
-                        onClick={() => setUploadedFile(null)}
-                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground flex-shrink-0"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-14 h-14 rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <Plus className="w-4 h-4" />
                       </button>
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground w-full justify-center py-1"
-                    >
-                      <Image className="w-4 h-4" />
-                      <span>Upload image, PDF or carousel visual</span>
-                    </button>
-                  )}
-                </div>
+                    <p className="text-[10px] text-muted-foreground">
+                      {uploadedFiles.length} file
+                      {uploadedFiles.length > 1 ? "s" : ""} selected
+                    </p>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground w-full justify-center py-2"
+                  >
+                    <Image className="w-4 h-4" />
+                    <span>Image · PDF carousel · Video — drag or click</span>
+                  </button>
+                )}
               </div>
 
               {/* Emoji picker */}
@@ -2548,27 +2802,56 @@ function EditorModal({
                     const truncateLines = lines.slice(0, LINE_LIMIT).join("\n");
                     const needsMore =
                       lines.length > LINE_LIMIT || content.length > CHAR_LIMIT;
-                    const displayText = needsMore
-                      ? truncateLines.length > CHAR_LIMIT
-                        ? truncateLines.slice(0, CHAR_LIMIT)
-                        : truncateLines
-                      : content;
+                    const displayText =
+                      needsMore && !showFullPreview
+                        ? truncateLines.length > CHAR_LIMIT
+                          ? truncateLines.slice(0, CHAR_LIMIT)
+                          : truncateLines
+                        : content;
                     return (
                       <div>
                         <p
                           className={`text-[#000000e6] dark:text-[#ffffffd9] whitespace-pre-line leading-[1.5] ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
                         >
-                          {displayText || (
+                          {displayText ? (
+                            displayText.split(/(\s)/).map((word, i) =>
+                              /^[#@]/.test(word) ? (
+                                <span
+                                  key={i}
+                                  style={{ color: "#0077b5", fontWeight: 600 }}
+                                >
+                                  {word}
+                                </span>
+                              ) : (
+                                word
+                              ),
+                            )
+                          ) : (
                             <span className="text-[#00000044]">
                               Your post content will appear here...
                             </span>
                           )}
                         </p>
-                        {needsMore && content && (
+                        {needsMore && content && !showFullPreview && (
                           <button
-                            className={`text-[#00000066] dark:text-[#ffffff66] font-semibold ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowFullPreview(true);
+                            }}
+                            className={`text-[#0077b5] font-semibold hover:underline cursor-pointer ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
                           >
                             …see more
+                          </button>
+                        )}
+                        {showFullPreview && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowFullPreview(false);
+                            }}
+                            className={`text-[#0077b5] font-semibold hover:underline cursor-pointer ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
+                          >
+                            see less
                           </button>
                         )}
                       </div>
@@ -2576,56 +2859,85 @@ function EditorModal({
                   })()}
                 </div>
 
-                {/* Uploaded image/PDF preview */}
-                {uploadedFile && uploadedFile.type.startsWith("image/") && (
-                  <div className="mx-0 mb-0">
-                    <img
-                      src={uploadedFile.previewUrl}
-                      alt="attachment"
-                      className="w-full max-h-64 object-cover"
-                    />
-                  </div>
-                )}
+                {/* ── LinkedIn-accurate media preview ── */}
+                {uploadedFiles.length > 0 &&
+                  uploadedFiles[0].type.startsWith("image/") &&
+                  uploadedFiles.length === 1 && (
+                    <div className="w-full overflow-hidden border-t border-[#e0ddd8] dark:border-[#38434f]">
+                      <img
+                        src={uploadedFiles[0].previewUrl}
+                        alt="attachment"
+                        className="w-full object-cover block"
+                        style={{ maxHeight: "580px", minHeight: "200px" }}
+                      />
+                    </div>
+                  )}
+                {uploadedFiles.length > 1 &&
+                  uploadedFiles.every((f) => f.type.startsWith("image/")) && (
+                    <ImageCarousel files={uploadedFiles} />
+                  )}
+                {uploadedFiles.length > 0 &&
+                  uploadedFiles[0].type.startsWith("video/") && (
+                    <div className="w-full overflow-hidden border-t border-[#e0ddd8] dark:border-[#38434f] relative bg-black">
+                      <video
+                        src={uploadedFiles[0].previewUrl}
+                        controls
+                        className="w-full max-h-[400px]"
+                      />
+                    </div>
+                  )}
                 {uploadedFile && uploadedFile.type === "application/pdf" && (
-                  <div className="mx-0 mb-0 border-t border-[#e0ddd8] dark:border-[#38434f]">
-                    {/* LinkedIn-style document carousel card */}
-                    <div className="relative bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 flex flex-col items-center justify-center py-8 px-4 gap-3">
-                      <div className="w-14 h-14 rounded-xl bg-red-500 flex items-center justify-center shadow-md">
-                        <span className="text-white text-2xl">📄</span>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-[12px] font-bold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[180px]">
+                  // LinkedIn document carousel — full-width slide viewer
+                  <div className="border-t border-[#e0ddd8] dark:border-[#38434f]">
+                    {/* Slide area */}
+                    <div
+                      className="relative w-full bg-[#f3f2ef] dark:bg-[#1d2226] flex flex-col items-center justify-center"
+                      style={{ aspectRatio: "1.33" }}
+                    >
+                      {/* Slide content */}
+                      <div className="flex flex-col items-center gap-3 px-6">
+                        <div className="w-16 h-16 rounded-2xl bg-[#0077b5] flex items-center justify-center shadow-lg">
+                          <span className="text-white text-3xl font-bold">
+                            📄
+                          </span>
+                        </div>
+                        <p className="text-[13px] font-bold text-[#000000e6] dark:text-[#ffffffd9] text-center max-w-[80%] line-clamp-2">
                           {uploadedFile.name}
                         </p>
-                        <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66] mt-0.5">
-                          PDF · Slide 1 of 1
+                        <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66]">
+                          Page 1 of —
                         </p>
                       </div>
-                      {/* Carousel nav dots — LinkedIn style */}
-                      <div className="flex items-center gap-1.5">
-                        {[0, 1, 2].map((i) => (
-                          <div
-                            key={i}
-                            className={`rounded-full transition-all ${i === 0 ? "w-4 h-1.5 bg-[#0077b5]" : "w-1.5 h-1.5 bg-[#00000020] dark:bg-[#ffffff20]"}`}
-                          />
-                        ))}
+                      {/* Prev/next arrows */}
+                      <button className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white dark:bg-[#1d2226] shadow flex items-center justify-center text-[#00000099]">
+                        ‹
+                      </button>
+                      <button className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white dark:bg-[#1d2226] shadow flex items-center justify-center text-[#00000099]">
+                        ›
+                      </button>
+                      {/* Slide counter */}
+                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/40 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                        1 / —
                       </div>
                     </div>
-                    <div className="px-3 py-2 flex items-center justify-between border-t border-[#e0ddd8] dark:border-[#38434f]">
+                    {/* Document footer bar */}
+                    <div className="px-3 py-2 flex items-center justify-between bg-white dark:bg-[#1d2226] border-t border-[#e0ddd8] dark:border-[#38434f]">
                       <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded bg-red-500 flex items-center justify-center">
-                          <span className="text-white text-[10px]">PDF</span>
+                        <div className="w-8 h-8 rounded-lg bg-[#0077b5] flex items-center justify-center flex-shrink-0">
+                          <span className="text-white text-[11px] font-bold">
+                            PDF
+                          </span>
                         </div>
                         <div>
-                          <p className="text-[11px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[140px]">
+                          <p className="text-[12px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[160px]">
                             {uploadedFile.name}
                           </p>
-                          <p className="text-[10px] text-[#00000066]">
-                            Document
+                          <p className="text-[10px] text-[#00000066] dark:text-[#ffffff66]">
+                            Document · {Math.round(uploadedFile.size / 1024)} KB
                           </p>
                         </div>
                       </div>
-                      <button className="text-[11px] font-semibold text-[#0077b5] hover:underline flex-shrink-0">
+                      <button className="text-[12px] font-semibold text-[#0077b5] flex-shrink-0 hover:underline">
                         View
                       </button>
                     </div>
@@ -2779,6 +3091,8 @@ export default function ContentStudioPage() {
   const [calMode, setCalMode] = useState<CalendarMode>("monthly");
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<PostStatus | null>(null);
+  const [draggingPostId, setDraggingPostId] = useState<string | null>(null);
   const [expandedCard, setExpandedCard] = useState<string | null>(null);
   const [sheetCols, setSheetCols] = useState<SheetColumn[]>(INITIAL_SHEET_COLS);
   const [newColName, setNewColName] = useState("");
@@ -2795,6 +3109,7 @@ export default function ContentStudioPage() {
   const [freeRows, setFreeRows] = useState<Record<string, string>[]>([]);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [addEventDay, setAddEventDay] = useState<string | null>(null);
+  const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
 
   const postsColRef = workspace
@@ -2829,12 +3144,19 @@ export default function ContentStudioPage() {
   const handleSaveEvent = async (ev: CalEvent) => {
     if (!workspace) return;
     BELL_SOUNDS[ev.bellSound]();
-
-    // Save to Firestore (shared workspace calendar)
-    await addDoc(collection(db, "workspaces", workspace.id, "calendarEvents"), {
-      ...ev,
-      createdAt: serverTimestamp(),
-    });
+    // If editing existing — update, else create
+    if (ev.id && calEvents.find((e) => e.id === ev.id)) {
+      await updateDoc(
+        doc(db, "workspaces", workspace.id, "calendarEvents", ev.id),
+        { ...ev },
+      );
+    } else {
+      await addDoc(
+        collection(db, "workspaces", workspace.id, "calendarEvents"),
+        { ...ev, createdAt: serverTimestamp() },
+      );
+    }
+    setEditingEvent(null);
   };
 
   const handleSave = async (
@@ -3122,12 +3444,22 @@ export default function ContentStudioPage() {
             ["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]
           ).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
+            const isDragTarget = dragOverCol === col;
             return (
               <div
                 key={col}
                 className="flex-1 min-w-[280px] flex flex-col gap-3"
-                onDragOver={(e) => e.preventDefault()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOverCol(col);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node))
+                    setDragOverCol(null);
+                }}
                 onDrop={async (e) => {
+                  e.preventDefault();
+                  setDragOverCol(null);
                   const postId = (
                     e as unknown as DragEvent
                   ).dataTransfer?.getData("postId");
@@ -3143,6 +3475,14 @@ export default function ContentStudioPage() {
                       { status: col },
                     );
                   }
+                }}
+                style={{
+                  outline: isDragTarget
+                    ? `2px dashed ${STATUS_HEX[col]}`
+                    : undefined,
+                  borderRadius: 16,
+                  padding: isDragTarget ? 4 : 0,
+                  transition: "all 0.15s",
                 }}
               >
                 <div className="flex items-center justify-between px-1">
@@ -3166,11 +3506,29 @@ export default function ContentStudioPage() {
                   </button>
                 </div>
                 <div className="space-y-3 flex-1">
+                  {/* Ghost placeholder at top when dragging into this column */}
+                  {isDragTarget &&
+                    draggingPostId &&
+                    filtered.find((p) => p.id === draggingPostId)?.status !==
+                      col && (
+                      <div
+                        className="rounded-2xl border-2 border-dashed h-24 animate-pulse"
+                        style={{
+                          borderColor: STATUS_HEX[col],
+                          backgroundColor: STATUS_HEX[col] + "10",
+                        }}
+                      />
+                    )}
                   {colPosts.map((post) => (
                     <PostCard
                       key={post.id}
                       post={post}
                       onClick={() => setEditing(post)}
+                      onDragStartCard={(id) => setDraggingPostId(id)}
+                      onDragEndCard={() => {
+                        setDraggingPostId(null);
+                        setDragOverCol(null);
+                      }}
                       onStatusChange={async (id, newStatus) => {
                         if (workspace)
                           await updateDoc(
@@ -3679,32 +4037,40 @@ export default function ContentStudioPage() {
                                 key={ev.id}
                                 initial={{ opacity: 0, y: 4 }}
                                 animate={{ opacity: 1, y: 0 }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingEvent(ev);
+                                }}
                                 className="mb-1 rounded-xl overflow-hidden cursor-pointer group/ev shadow-sm hover:shadow-md transition-all"
                                 style={{
                                   backgroundColor: ec.hex + "18",
                                   border: `1px solid ${ec.hex}30`,
                                 }}
                               >
-                                {/* Top colour bar */}
                                 <div
-                                  className="h-0.5 w-full"
+                                  className="h-1 w-full"
                                   style={{ backgroundColor: ec.hex }}
                                 />
-                                <div className="px-2 py-1.5">
+                                <div className="px-2 py-2">
                                   <p
-                                    className="text-[10px] font-bold leading-tight truncate"
+                                    className="text-[11px] font-bold leading-tight truncate"
                                     style={{ color: ec.hex }}
                                   >
                                     {ev.title}
                                   </p>
+                                  {ev.description && (
+                                    <p className="text-[9px] text-muted-foreground truncate mt-0.5">
+                                      {ev.description}
+                                    </p>
+                                  )}
                                   <div className="flex items-center justify-between mt-1 gap-1">
-                                    <p className="text-[9px] text-muted-foreground font-medium">
+                                    <p className="text-[10px] text-muted-foreground font-medium">
                                       {ev.time}–{ev.endTime}
                                     </p>
                                     <div className="flex items-center gap-1">
                                       {isForMe && (
                                         <span
-                                          className="text-[8px] font-bold px-1 py-0.5 rounded"
+                                          className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
                                           style={{
                                             backgroundColor: ec.hex + "30",
                                             color: ec.hex,
@@ -3713,9 +4079,9 @@ export default function ContentStudioPage() {
                                           you
                                         </span>
                                       )}
-                                      {ev.assignedAvatar && !isForMe && (
+                                      {ev.assignedAvatar && (
                                         <div
-                                          className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold text-white"
+                                          className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
                                           style={{ backgroundColor: ec.hex }}
                                         >
                                           {ev.assignedAvatar}
@@ -3845,6 +4211,7 @@ export default function ContentStudioPage() {
                               key={ev.id}
                               initial={{ opacity: 0, x: -4 }}
                               animate={{ opacity: 1, x: 0 }}
+                              onClick={() => setEditingEvent(ev)}
                               className="rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer"
                               style={{
                                 backgroundColor: ec.hex + "15",

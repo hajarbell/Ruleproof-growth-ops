@@ -1,12 +1,9 @@
 {
-  "rewrites": [
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "crons": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api/$1"
-    },
-    {
-      "source": "/((?!api/.*).*)",
-      "destination": "/index.html"
+      "path": "/api/linkedin/cron-publish",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
