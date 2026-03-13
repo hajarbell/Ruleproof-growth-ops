@@ -1239,9 +1239,12 @@ function EditorModal({
   >(null);
 
   const handlePublishToLinkedIn = async () => {
-    if (!selAcc || !workspace) return;
+    if (!selAcc) {
+      alert("No account selected.");
+      return;
+    }
 
-    // Try in-memory token first, fall back to direct Firestore read
+    // Try in-memory token first
     let token = (selAcc as any).accessToken as string | undefined;
     console.log(
       "[Publish] selAcc.id:",
@@ -1251,22 +1254,29 @@ function EditorModal({
     );
 
     if (!token) {
-      // Direct read — in case onSnapshot hasn't delivered the update yet
-      const snap = await getDoc(
-        doc(db, "workspaces", workspace.id, "linkedinAccounts", selAcc.id),
-      );
-      token = snap.data()?.accessToken;
-      console.log(
-        "[Publish] Firestore direct read token:",
-        !!token,
-        "| all fields:",
-        Object.keys(snap.data() || {}),
-      );
+      // Direct Firestore read fallback — workspace may be null if not loaded yet
+      const wsId = workspace?.id;
+      if (wsId) {
+        const snap = await getDoc(
+          doc(db, "workspaces", wsId, "linkedinAccounts", selAcc.id),
+        );
+        token = snap.data()?.accessToken;
+        console.log(
+          "[Publish] Firestore fallback token:",
+          !!token,
+          "| fields:",
+          Object.keys(snap.data() || {}),
+        );
+      } else {
+        console.warn(
+          "[Publish] workspace is null — cannot do Firestore fallback",
+        );
+      }
     }
 
     if (!token) {
       alert(
-        "No LinkedIn access token found. Please go to the LinkedIn page and reconnect this account.",
+        "No LinkedIn access token found.\n\nPlease go to the LinkedIn page, disconnect this account, then reconnect it.",
       );
       return;
     }
