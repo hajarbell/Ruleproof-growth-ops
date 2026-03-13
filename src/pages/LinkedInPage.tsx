@@ -65,7 +65,7 @@ import { useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-export interface LinkedInAccount {
+export type LinkedInAccount = {
   id: string;
   name: string;
   headline: string;
@@ -81,7 +81,7 @@ export interface LinkedInAccount {
   accessToken?: string; // LinkedIn OAuth access token — stored encrypted-ish in Firestore
   posts: LinkedInPost[];
   createdAt: unknown;
-}
+};
 
 export interface LinkedInPost {
   id: string;
