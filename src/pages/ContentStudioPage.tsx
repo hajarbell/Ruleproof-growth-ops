@@ -39,7 +39,6 @@ import {
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLinkedInAccounts } from "@/hooks/useLinkedInAccounts";
-import { useGoogleCalendar, GCAL_COLOR_MAP } from "@/hooks/useGoogleCalendar";
 import type { LinkedInAccount } from "@/pages/LinkedInPage";
 import type { WorkspaceMember } from "@/contexts/AuthContext";
 
@@ -2539,11 +2538,6 @@ function EditorModal({
 export default function ContentStudioPage() {
   const { workspace, members, user } = useAuth();
   const { accounts: linkedinAccounts } = useLinkedInAccounts();
-  const {
-    connected: gcalConnected,
-    connect: connectGCal,
-    createEvent: createGCalEvent,
-  } = useGoogleCalendar();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
@@ -2610,22 +2604,6 @@ export default function ContentStudioPage() {
       ...ev,
       createdAt: serverTimestamp(),
     });
-
-    // Write to Google Calendar if user has connected it
-    if (gcalConnected) {
-      const startIso = `${ev.date}T${ev.time || "09:00"}:00`;
-      const endIso = `${ev.date}T${ev.endTime || "10:00"}:00`;
-      const assignedMember = members.find((m) => m.uid === ev.assignedToUid);
-
-      createGCalEvent({
-        title: ev.title,
-        description: ev.description || "",
-        startIso,
-        endIso,
-        guestEmail: assignedMember?.email,
-        colorId: GCAL_COLOR_MAP[ev.color] || "1",
-      }).catch((e) => console.warn("GCal write failed:", e));
-    }
   };
 
   const handleSave = async (
@@ -3277,31 +3255,6 @@ export default function ContentStudioPage() {
           animate={{ opacity: 1 }}
           className="glass rounded-xl p-4 shadow-soft flex-1 overflow-auto"
         >
-          {/* Google Calendar connect banner */}
-          {!gcalConnected && (
-            <div className="mb-3 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20">
-              <span className="text-lg">📅</span>
-              <p className="text-xs text-foreground flex-1">
-                Connect Google Calendar to sync events directly to your calendar
-                and invite teammates.
-              </p>
-              <button
-                onClick={connectGCal}
-                className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold transition-colors"
-              >
-                Connect
-              </button>
-            </div>
-          )}
-          {gcalConnected && (
-            <div className="mb-3 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
-              <Check className="w-3.5 h-3.5 text-emerald-500" />
-              <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                Google Calendar connected — events sync automatically
-              </p>
-            </div>
-          )}
-
           {/* Monthly */}
           {calMode === "monthly" && (
             <>
@@ -3471,7 +3424,6 @@ export default function ContentStudioPage() {
                               <div
                                 key={ev.id}
                                 className={`mb-1 rounded-lg px-1.5 py-1 border ${ec.bg} ${ec.border} ${isForMe ? "ring-1 ring-offset-1" : ""}`}
-                                style={isForMe ? { ringColor: ec.hex } : {}}
                               >
                                 <div className="flex items-center gap-1">
                                   <span
