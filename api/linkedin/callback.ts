@@ -1,23 +1,32 @@
 // api/linkedin/callback.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import * as adminModule from "firebase-admin";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const admin = require("firebase-admin");
+const admin = adminModule.default ?? adminModule;
+
+let db: FirebaseFirestore.Firestore | null = null;
 
 function initAdmin() {
-  if (admin.apps.length === 0) {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(
-          /\\n/g,
-          "\n",
-        ),
-      }),
-    });
+  if (db) return db;
+  try {
+    if (!admin.apps.length) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+          privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(
+            /\\n/g,
+            "\n",
+          ),
+        }),
+      });
+    }
+    db = admin.firestore();
+    return db;
+  } catch (e) {
+    console.error("Firebase init failed:", e);
+    throw e;
   }
-  return admin.firestore();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -71,9 +80,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const email: string = profile.email || "";
 
     if (workspaceId && linkedinId) {
-      const db = initAdmin();
+      const firestore = initAdmin();
 
-      await db
+      await firestore
         .collection("workspaces")
         .doc(workspaceId)
         .collection("linkedinTokens")
@@ -88,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
       try {
-        await db
+        await firestore
           .collection("workspaces")
           .doc(workspaceId)
           .collection("notifications")
@@ -117,6 +126,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.redirect(`${APP_URL}/linkedin?${params.toString()}`);
   } catch (err) {
     console.error("LinkedIn OAuth callback error:", err);
-    return res.redirect(`${APP_URL}/linkedin?error=server_error`);
+    return res.status(500).json({
+      error: "server_error",
+      message: err instanceof Error ? err.message : String(err),
+    });
   }
 }
