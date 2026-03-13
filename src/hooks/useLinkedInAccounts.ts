@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import type { LinkedInAccount } from "@/pages/LinkedInPage";
@@ -20,7 +20,9 @@ export function useLinkedInAccounts() {
       workspace.id,
       "linkedinAccounts",
     );
-    getDocs(colRef).then((snap) => {
+
+    // onSnapshot — picks up accessToken the moment it's written to Firestore
+    const unsub = onSnapshot(colRef, (snap) => {
       const data = snap.docs.map((d) => ({
         id: d.id,
         ...d.data(),
@@ -28,6 +30,8 @@ export function useLinkedInAccounts() {
       setAccounts(data);
       setLoading(false);
     });
+
+    return unsub;
   }, [workspace?.id]);
 
   return { accounts, loading };

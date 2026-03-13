@@ -78,6 +78,7 @@ export interface LinkedInAccount {
   pageVisits?: number;
   profileUrl: string;
   linkedinId?: string;
+  accessToken?: string; // LinkedIn OAuth access token — stored encrypted-ish in Firestore
   posts: LinkedInPost[];
   createdAt: unknown;
 }
@@ -1797,8 +1798,8 @@ function AddPostModal({
         }
 
         // ── TOP POSTS: LEFT col = master post list, RIGHT col = impressions lookup ──
-        // LEFT cols (0-2):  URL | publish date | Engagements  (ranked by engagement)
-        // RIGHT cols (4-6): URL | publish date | Impressions  (ranked by impressions)
+        // LEFT cols (0-2): URL | publish date | Engagements (ranked by engagement)
+        // RIGHT cols (4-6): URL | publish date | Impressions (ranked by impressions)
         //
         // KEY RULE: LEFT column defines WHICH posts to import.
         // RIGHT column is only used to look up impressions for those posts.
@@ -2066,7 +2067,7 @@ function AddPostModal({
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1 block">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1.5 flex items-center gap-1">
                     <Link2 className="w-3 h-3" /> Post URL
                   </label>
                   <input
@@ -2079,7 +2080,7 @@ function AddPostModal({
               </div>
             </details>
             <div>
-              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <Tag className="w-3 h-3" /> Tags
               </label>
               <TagsPicker value={tags} onChange={setTags} />
@@ -2449,7 +2450,7 @@ function EditPostModal({
             />
           </div>
           <div>
-            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5 block">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <Tag className="w-3 h-3" /> Tags
             </label>
             <TagsPicker value={tags} onChange={setTags} />
@@ -3685,6 +3686,7 @@ export default function LinkedInPage() {
       const linkedinId = searchParams.get("linkedin_id") || "";
       const headline = searchParams.get("linkedin_headline") || "";
       const avatarUrl = searchParams.get("linkedin_avatar") || "";
+      const accessToken = searchParams.get("access_token") || "";
       setSearchParams({});
 
       // Wait for workspace to be ready (it may still be loading)
@@ -3702,10 +3704,36 @@ export default function LinkedInPage() {
                 id: snap.docs[0].id,
                 ...snap.docs[0].data(),
               } as LinkedInAccount;
+              // Update access token — use ref.path to get wsId since workspace
+              // closure may still be null when this async callback runs
+              if (accessToken) {
+                const wsId = ref.path.split("/")[1]; // "workspaces/WS_ID/linkedinAccounts" → WS_ID
+                if (wsId) {
+                  updateDoc(
+                    doc(
+                      db,
+                      "workspaces",
+                      wsId,
+                      "linkedinAccounts",
+                      snap.docs[0].id,
+                    ),
+                    { accessToken },
+                  )
+                    .then(() =>
+                      console.log(
+                        "[LinkedIn] ✅ Token saved for account",
+                        snap.docs[0].id,
+                      ),
+                    )
+                    .catch((e) =>
+                      console.warn("[LinkedIn] ❌ Token save failed:", e),
+                    );
+                }
+              }
               setSelectedAccountId(existing.id);
               setEditingAccount(existing);
               setToast({
-                msg: `✅ ${linkedinName} already connected.`,
+                msg: `✅ ${linkedinName} reconnected!`,
                 type: "success",
               });
               return;
@@ -3722,6 +3750,7 @@ export default function LinkedInPage() {
               followersGrowth: 0,
               profileUrl: "",
               linkedinId,
+              accessToken, // stored for publishing
               posts: [],
             };
             addDoc(ref, { ...newAcc, createdAt: serverTimestamp() }).then(
