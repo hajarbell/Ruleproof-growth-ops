@@ -39,6 +39,7 @@ import {
   onSnapshot,
   query,
   orderBy,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1117,6 +1118,7 @@ function EditorModal({
 }) {
   const isNew = !post;
   const defaultAccount = linkedinAccounts[0];
+  const { workspace } = useAuth();
 
   const [content, setContent] = useState(post?.content ?? "");
   const [theme, setTheme] = useState(post?.theme ?? "");
@@ -1237,11 +1239,34 @@ function EditorModal({
   >(null);
 
   const handlePublishToLinkedIn = async () => {
-    if (!selAcc) return;
-    const token = (selAcc as any).accessToken;
+    if (!selAcc || !workspace) return;
+
+    // Try in-memory token first, fall back to direct Firestore read
+    let token = (selAcc as any).accessToken as string | undefined;
+    console.log(
+      "[Publish] selAcc.id:",
+      selAcc.id,
+      "| in-memory token:",
+      !!token,
+    );
+
+    if (!token) {
+      // Direct read — in case onSnapshot hasn't delivered the update yet
+      const snap = await getDoc(
+        doc(db, "workspaces", workspace.id, "linkedinAccounts", selAcc.id),
+      );
+      token = snap.data()?.accessToken;
+      console.log(
+        "[Publish] Firestore direct read token:",
+        !!token,
+        "| all fields:",
+        Object.keys(snap.data() || {}),
+      );
+    }
+
     if (!token) {
       alert(
-        "No LinkedIn access token found. Please reconnect this account on the LinkedIn page.",
+        "No LinkedIn access token found. Please go to the LinkedIn page and reconnect this account.",
       );
       return;
     }
@@ -1303,8 +1328,10 @@ function EditorModal({
       accountColor: selAcc.avatarColor || "#6366f1",
       accountBio: selAcc.headline,
       accountFollowers: selAcc.followers,
-      accountAvatarUrl: selAcc.avatarUrl,
-      uploadedFileUrl: uploadedFile?.previewUrl,
+      accountAvatarUrl: selAcc.avatarUrl || "",
+      ...(uploadedFile?.previewUrl
+        ? { uploadedFileUrl: uploadedFile.previewUrl }
+        : {}),
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
       assignedAvatar: memberInitials(selMember ?? {}),
@@ -2748,17 +2775,23 @@ export default function ContentStudioPage() {
     assignComment: string,
   ) => {
     if (!postsColRef || !workspace) return;
-    if (saved.id && posts.find((p) => p.id === saved.id)) {
+
+    // Strip any undefined values — Firestore rejects them
+    const clean = Object.fromEntries(
+      Object.entries(saved).filter(([, v]) => v !== undefined),
+    ) as Post;
+
+    if (clean.id && posts.find((p) => p.id === clean.id)) {
       await updateDoc(
-        doc(db, "workspaces", workspace.id, "contentPosts", saved.id),
+        doc(db, "workspaces", workspace.id, "contentPosts", clean.id),
         {
-          ...saved,
+          ...clean,
           updatedAt: new Date().toISOString(),
         },
       );
     } else {
       const docRef = await addDoc(postsColRef, {
-        ...saved,
+        ...clean,
         createdAt: serverTimestamp(),
       });
       saved.id = docRef.id;
