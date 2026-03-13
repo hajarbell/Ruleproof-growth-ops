@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Palette,
@@ -21,6 +21,8 @@ import {
   Trash2,
   Hash,
   Calendar,
+  Linkedin,
+  ChevronRight,
 } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useAuth, MemberRole } from "@/contexts/AuthContext";
@@ -266,10 +268,215 @@ function NotificationsPanel({ workspaceId }: { workspaceId: string }) {
   );
 }
 
+// ─── Members + LinkedIn Panel ─────────────────────────────────────────────────
+function MembersLinkedInPanel({
+  workspaceId,
+  onClose,
+}: {
+  workspaceId: string;
+  onClose: () => void;
+}) {
+  const { members } = useAuth();
+  const [linkedinAccounts, setLinkedinAccounts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    getDocs(collection(db, "workspaces", workspaceId, "linkedinAccounts")).then(
+      (snap) => {
+        setLinkedinAccounts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+    );
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  const personalAccounts = linkedinAccounts.filter(
+    (a) => a.type === "personal",
+  );
+  const companyAccounts = linkedinAccounts.filter((a) => a.type === "company");
+
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, scale: 0.97, y: 8 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.97, y: 8 }}
+      className="absolute top-full left-0 mt-2 w-[420px] bg-card border border-border rounded-2xl shadow-2xl z-50 overflow-hidden"
+    >
+      <div className="h-0.5 w-full bg-gradient-to-r from-[hsl(var(--gradient-start))] via-[hsl(var(--gradient-mid))] to-[hsl(var(--gradient-end))]" />
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <Users className="w-4 h-4 text-muted-foreground" />
+          <p className="text-sm font-semibold text-foreground">
+            {members.length} Members & LinkedIn Accounts
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 rounded hover:bg-muted text-muted-foreground"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : (
+        <div className="max-h-[480px] overflow-y-auto divide-y divide-border/40">
+          {members.map((m) => {
+            const ini = (m.displayName || m.email || "?")
+              .split(" ")
+              .map((n: string) => n[0])
+              .join("")
+              .toUpperCase()
+              .slice(0, 2);
+            // Match LinkedIn accounts to member by name similarity (best effort without uid mapping)
+            const memberLinkedIn = personalAccounts.filter(
+              (a) =>
+                a.name &&
+                m.displayName &&
+                a.name
+                  .toLowerCase()
+                  .includes(m.displayName.split(" ")[0].toLowerCase()),
+            );
+            return (
+              <div key={m.uid} className="px-4 py-3">
+                <div className="flex items-center gap-3 mb-2">
+                  {m.photoURL ? (
+                    <img
+                      src={m.photoURL}
+                      className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                      alt=""
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full gradient-primary flex items-center justify-center text-xs font-bold text-primary-foreground flex-shrink-0">
+                      {ini}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-foreground">
+                        {m.displayName || m.email}
+                      </p>
+                      <RolePill role={m.role} />
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {m.email}
+                    </p>
+                  </div>
+                </div>
+                {/* LinkedIn accounts for this member */}
+                {memberLinkedIn.length > 0 && (
+                  <div className="ml-12 space-y-1.5">
+                    {memberLinkedIn.map((acc) => (
+                      <div
+                        key={acc.id}
+                        className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-[#0077b5]/8 border border-[#0077b5]/15"
+                      >
+                        {acc.avatarUrl ? (
+                          <img
+                            src={acc.avatarUrl}
+                            className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                            alt=""
+                          />
+                        ) : (
+                          <div className="w-7 h-7 rounded-full bg-[#0077b5]/20 flex items-center justify-center flex-shrink-0">
+                            <Linkedin className="w-3.5 h-3.5 text-[#0077b5]" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground">
+                            {acc.name}
+                          </p>
+                          {acc.headline && (
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {acc.headline}
+                            </p>
+                          )}
+                          {acc.followers > 0 && (
+                            <p className="text-[10px] text-primary">
+                              {acc.followers.toLocaleString()} followers
+                            </p>
+                          )}
+                        </div>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 font-semibold uppercase">
+                          Personal
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {memberLinkedIn.length === 0 && (
+                  <div className="ml-12">
+                    <p className="text-[10px] text-muted-foreground/50 italic">
+                      No LinkedIn account linked
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {/* Company accounts section */}
+          {companyAccounts.length > 0 && (
+            <div className="px-4 py-3">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <Linkedin className="w-3 h-3 text-[#0077b5]" /> Company Pages (
+                {companyAccounts.length})
+              </p>
+              {companyAccounts.map((acc) => (
+                <div
+                  key={acc.id}
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-xl bg-sky-500/8 border border-sky-500/15 mb-1.5"
+                >
+                  {acc.avatarUrl ? (
+                    <img
+                      src={acc.avatarUrl}
+                      className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+                      alt=""
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-sky-500/20 flex items-center justify-center flex-shrink-0">
+                      <Linkedin className="w-3.5 h-3.5 text-sky-400" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-foreground">
+                      {acc.name}
+                    </p>
+                    {acc.headline && (
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {acc.headline}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-sky-500/10 text-sky-400 font-semibold uppercase">
+                    Company
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
 // ─── Workspace Session Card ───────────────────────────────────────────────────
 function WorkspaceSessionCard() {
   const { workspace, members, user } = useAuth();
   const [copiedId, setCopiedId] = useState(false);
+  const [showMembersPanel, setShowMembersPanel] = useState(false);
 
   if (!workspace) return null;
 
@@ -306,21 +513,39 @@ function WorkspaceSessionCard() {
       </div>
 
       <div className="px-5 py-4 space-y-3">
-        {/* Workspace name */}
-        <div className="flex items-center justify-between py-2 border-b border-border/40">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-bold text-primary-foreground">
-                {workspace.name[0]?.toUpperCase()}
+        {/* Workspace name — clickable to show members panel */}
+        <div className="relative">
+          <button
+            onClick={() => setShowMembersPanel(!showMembersPanel)}
+            className="w-full flex items-center justify-between py-2 border-b border-border/40 hover:bg-muted/30 rounded-lg px-2 -mx-2 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-bold text-primary-foreground">
+                  {workspace.name[0]?.toUpperCase()}
+                </span>
+              </div>
+              <span className="font-medium text-foreground">
+                {workspace.name}
               </span>
             </div>
-            <span className="font-medium text-foreground">
-              {workspace.name}
-            </span>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            {members.length} member{members.length !== 1 ? "s" : ""}
-          </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-primary font-semibold">
+                {members.length} member{members.length !== 1 ? "s" : ""}
+              </span>
+              <ChevronRight
+                className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${showMembersPanel ? "rotate-90" : ""}`}
+              />
+            </div>
+          </button>
+          <AnimatePresence>
+            {showMembersPanel && (
+              <MembersLinkedInPanel
+                workspaceId={workspace.id}
+                onClose={() => setShowMembersPanel(false)}
+              />
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Workspace ID */}
