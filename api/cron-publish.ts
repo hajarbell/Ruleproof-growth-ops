@@ -1,29 +1,69 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 
-// Init Firebase Admin (only once)
 if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID!,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, "\n"),
-    }),
-  });
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
+  initializeApp({ credential: cert(serviceAccount) });
 }
 
 const db = getFirestore();
 
+async function resolveToken(
+  wsId: string,
+  linkedinId: string | undefined,
+  linkedinAccountId: string | undefined,
+): Promise<string | null> {
+  if (linkedinId) {
+    const snap = await db
+      .collection("workspaces")
+      .doc(wsId)
+      .collection("linkedinTokens")
+      .doc(linkedinId)
+      .get();
+    const t = snap.data()?.accessToken;
+    if (t && t.length > 10) return t;
+  }
+
+  if (linkedinAccountId) {
+    const snap = await db
+      .collection("workspaces")
+      .doc(wsId)
+      .collection("linkedinAccounts")
+      .doc(linkedinAccountId)
+      .get();
+    const t = snap.data()?.accessToken;
+    if (t && t.length > 10) return t;
+  }
+
+  const all = await db
+    .collection("workspaces")
+    .doc(wsId)
+    .collection("linkedinTokens")
+    .get();
+  for (const doc of all.docs) {
+    const t = doc.data()?.accessToken;
+    if (t && t.length > 10) {
+      if (all.size === 1 || doc.id === linkedinId) return t;
+    }
+  }
+
+  return null;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Vercel cron calls this via GET — protect with a secret
-  const secret = req.headers["x-cron-secret"] || req.query.secret;
-  if (secret !== process.env.CRON_SECRET) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const secret =
+    (req.headers["x-cron-secret"] as string) || (req.query.secret as string);
+
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
   const now = new Date();
-  const nowISO = now.toISOString(); // e.g. "2026-03-13T14:30:00.000Z"
   const results: {
     postId: string;
     wsId: string;
@@ -32,13 +72,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }[] = [];
 
   try {
-    // Get all workspaces
     const workspaces = await db.collection("workspaces").listDocuments();
 
     for (const wsRef of workspaces) {
       const wsId = wsRef.id;
 
-      // Find Scheduled posts whose time has passed
       const postsSnap = await db
         .collection("workspaces")
         .doc(wsId)
@@ -48,45 +86,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       for (const postDoc of postsSnap.docs) {
         const post = postDoc.data();
-        const scheduledDate = post.scheduledDate as string; // "YYYY-MM-DD"
-        const scheduledTime = (post.scheduledTime as string) || "09:00"; // "HH:MM"
+        const scheduledDate = post.scheduledDate as string;
+        const scheduledTime = (post.scheduledTime as string) || "09:00";
 
         if (!scheduledDate) continue;
 
-        // Build scheduled datetime in UTC (assume user inputs local time — treat as UTC for now)
         const scheduledDT = new Date(
           `${scheduledDate}T${scheduledTime}:00.000Z`,
         );
-        if (scheduledDT > now) continue; // not due yet
+        if (scheduledDT > now) continue;
 
-        // Get the LinkedIn token for this post's account
         const linkedinId = post.linkedinId as string | undefined;
-        let accessToken: string | undefined;
-
-        if (linkedinId) {
-          const tokSnap = await db
-            .collection("workspaces")
-            .doc(wsId)
-            .collection("linkedinTokens")
-            .doc(linkedinId)
-            .get();
-          accessToken = tokSnap.data()?.accessToken;
-        }
-
-        // Also try linkedinAccounts doc
-        if (!accessToken && post.linkedinAccountId) {
-          const accSnap = await db
-            .collection("workspaces")
-            .doc(wsId)
-            .collection("linkedinAccounts")
-            .doc(post.linkedinAccountId)
-            .get();
-          const t = accSnap.data()?.accessToken;
-          if (t && t.length > 10) accessToken = t;
-        }
+        const accessToken = await resolveToken(
+          wsId,
+          linkedinId,
+          post.linkedinAccountId,
+        );
 
         if (!accessToken) {
-          console.warn(`[Cron] No token for post ${postDoc.id} in ws ${wsId}`);
+          console.warn(`[Cron] No token — post ${postDoc.id} ws ${wsId}`);
           results.push({
             postId: postDoc.id,
             wsId,
@@ -95,9 +113,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           continue;
         }
 
-        // Publish to LinkedIn
         try {
-          const authorUrn = `urn:li:person:${linkedinId}`;
           const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
             method: "POST",
             headers: {
@@ -106,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               "X-Restli-Protocol-Version": "2.0.0",
             },
             body: JSON.stringify({
-              author: authorUrn,
+              author: `urn:li:person:${linkedinId}`,
               lifecycleState: "PUBLISHED",
               specificContent: {
                 "com.linkedin.ugc.ShareContent": {
@@ -120,9 +136,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }),
           });
 
+          const liData = await liRes.json();
+
           if (liRes.ok) {
-            const liData = await liRes.json();
-            // Mark as Published in Firestore
             await db
               .collection("workspaces")
               .doc(wsId)
@@ -134,7 +150,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 linkedinPostId: liData.id ?? "",
               });
 
-            // Notify the assigned member
             if (post.assignedToUid) {
               await db
                 .collection("workspaces")
@@ -151,27 +166,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
 
             results.push({ postId: postDoc.id, wsId, status: "published" });
-            console.log(`[Cron] ✅ Published post ${postDoc.id}`);
+            console.log(`[Cron] ✅ Published ${postDoc.id}`);
           } else {
-            const err = await liRes.json();
-            console.error(`[Cron] LinkedIn error for ${postDoc.id}:`, err);
+            console.error(`[Cron] LinkedIn error ${postDoc.id}:`, liData);
             results.push({
               postId: postDoc.id,
               wsId,
               status: "linkedin_error",
-              error: JSON.stringify(err),
+              error: JSON.stringify(liData),
             });
           }
-        } catch (publishErr) {
-          console.error(
-            `[Cron] Publish exception for ${postDoc.id}:`,
-            publishErr,
-          );
+        } catch (e) {
+          console.error(`[Cron] Exception ${postDoc.id}:`, e);
           results.push({
             postId: postDoc.id,
             wsId,
             status: "exception",
-            error: String(publishErr),
+            error: String(e),
           });
         }
       }
@@ -179,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ checked: now.toISOString(), results });
   } catch (err) {
-    console.error("[Cron] Fatal error:", err);
+    console.error("[Cron] Fatal:", err);
     return res.status(500).json({ error: String(err) });
   }
 }
