@@ -1,10 +1,9 @@
 // api/linkedin/callback.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import * as adminModule from "firebase-admin";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const admin = require("firebase-admin");
 
-const admin = adminModule.default ?? adminModule;
-
-let db: FirebaseFirestore.Firestore | null = null;
+let db: any = null;
 
 function initAdmin() {
   if (db) return db;
