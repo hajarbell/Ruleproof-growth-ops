@@ -1,5 +1,5 @@
 // src/pages/ContentStudioPage.tsx
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   PenTool,
@@ -19,8 +19,12 @@ import {
   Layers,
   Image,
   List,
+  MoreHorizontal,
+  Archive,
   Bold,
   Bell,
+  ChevronLeft,
+  ChevronRight,
   CalendarPlus,
   Loader2,
 } from "lucide-react";
@@ -78,7 +82,7 @@ type ContentTag =
   | "Personal"
   | "Building in Public"
   | "Promotion";
-type PostStatus = "Draft" | "Scheduled" | "Published";
+type PostStatus = "Draft" | "Scheduled" | "Published" | "Archived";
 type ViewMode = "cards" | "sheets" | "calendar";
 type VisualType = "text" | "carousel" | "infographic" | "video";
 type PreviewDevice = "desktop" | "mobile" | "tablet";
@@ -299,11 +303,13 @@ const STATUS_COLORS: Record<PostStatus, string> = {
   Draft: "bg-zinc-500/20 text-zinc-400",
   Scheduled: "bg-indigo-500/20 text-indigo-400",
   Published: "bg-emerald-500/20 text-emerald-400",
+  Archived: "bg-zinc-400/15 text-zinc-400",
 };
 const STATUS_HEX: Record<PostStatus, string> = {
   Draft: "#71717a",
   Scheduled: "#6366f1",
   Published: "#10b981",
+  Archived: "#a1a1aa",
 };
 
 const CARD_COLORS = [
@@ -527,16 +533,13 @@ function StatsStrip({ posts }: { posts: Post[] }) {
 
 // ─── Post Card ────────────────────────────────────────────────────────────────
 // Status → card background colors matching reference screenshot
-const CARD_STATUS_BG: Record<PostStatus, string> = {
-  Scheduled: "bg-violet-100 dark:bg-violet-900/30",
-  Draft: "bg-white dark:bg-zinc-800/60",
-  Published: "bg-zinc-100 dark:bg-zinc-700/40",
-};
-const CARD_STATUS_BG_HEX: Record<PostStatus, string> = {
-  Scheduled: "#ede9fe",
-  Draft: "#ffffff",
-  Published: "#f4f4f5",
-};
+const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
+  {
+    Scheduled: { light: "#ede9fe", dark: "#2e1f4f" },
+    Draft: { light: "#f8fafc", dark: "#1e2535" },
+    Published: { light: "#f0fdf4", dark: "#0f2a1e" },
+    Archived: { light: "#f4f4f5", dark: "#1c1c20" },
+  };
 
 function PostCard({
   post,
@@ -550,7 +553,21 @@ function PostCard({
   onStatusChange?: (id: string, status: PostStatus) => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const [isDark, setIsDark] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const obs = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains("dark")),
+    );
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!showMenu) return;
@@ -562,25 +579,47 @@ function PostCard({
     return () => document.removeEventListener("mousedown", h);
   }, [showMenu]);
 
-  const cardBg = post.cardColor || CARD_STATUS_BG_HEX[post.status];
+  const bgColors = CARD_STATUS_BG_HEX[post.status];
+  const cardBg = post.cardColor || (isDark ? bgColors.dark : bgColors.light);
+
+  // content preview: first 120 chars
+  const preview =
+    post.content.slice(0, 120) + (post.content.length > 120 ? "…" : "");
+
+  // progress dots: 4 steps based on content length
+  const dots = Math.min(4, Math.ceil((post.content.length / 600) * 4));
 
   return (
     <motion.div
+      ref={cardRef}
       layout
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl overflow-visible shadow-sm hover:shadow-md transition-all cursor-pointer group relative"
-      style={{ backgroundColor: cardBg }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="rounded-2xl overflow-visible shadow-sm hover:shadow-md transition-all cursor-pointer group relative select-none"
+      style={{
+        backgroundColor: cardBg,
+        border: `1px solid ${isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"}`,
+      }}
       draggable
       onDragStart={(e) => {
         (e as unknown as DragEvent).dataTransfer?.setData("postId", post.id);
       }}
     >
-      <div className="p-4" onClick={onClick}>
-        {/* Top row: title + menu */}
-        <div className="flex items-start justify-between mb-3">
-          <h4 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100 leading-snug flex-1 pr-2 line-clamp-2">
-            {post.theme || post.content.slice(0, 40)}
+      {/* Left accent stripe by status */}
+      <div
+        className="absolute left-0 top-3 bottom-3 w-0.5 rounded-full"
+        style={{ backgroundColor: STATUS_HEX[post.status] }}
+      />
+
+      <div className="p-4 pl-5" onClick={onClick}>
+        {/* Top: title + menu */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <h4
+            className="text-[13px] font-semibold leading-snug flex-1 line-clamp-2"
+            style={{ color: isDark ? "#f1f5f9" : "#1e293b" }}
+          >
+            {post.theme || post.content.slice(0, 50) || "Untitled"}
           </h4>
           <div className="relative flex-shrink-0" ref={menuRef}>
             <button
@@ -588,18 +627,45 @@ function PostCard({
                 e.stopPropagation();
                 setShowMenu(!showMenu);
               }}
-              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-gray-400 transition-colors"
+              className="w-6 h-6 flex items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ color: isDark ? "#94a3b8" : "#64748b" }}
             >
-              <span className="text-sm font-bold leading-none tracking-widest">
-                ···
-              </span>
+              <MoreHorizontal className="w-4 h-4" />
             </button>
             {showMenu && (
               <div
-                className="absolute right-0 top-7 z-30 bg-white dark:bg-zinc-800 rounded-xl border border-border shadow-xl overflow-hidden w-40"
+                className="absolute right-0 top-7 z-50 rounded-xl border shadow-xl overflow-hidden w-44"
+                style={{
+                  backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                  borderColor: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.08)",
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
-                {(["Draft", "Scheduled", "Published"] as PostStatus[])
+                <div
+                  className="px-3 py-1.5 border-b"
+                  style={{
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)",
+                  }}
+                >
+                  <p
+                    className="text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: isDark ? "#64748b" : "#94a3b8" }}
+                  >
+                    Move to
+                  </p>
+                </div>
+                {(
+                  [
+                    "Draft",
+                    "Scheduled",
+                    "Published",
+                    "Archived",
+                  ] as PostStatus[]
+                )
                   .filter((s) => s !== post.status)
                   .map((s) => (
                     <button
@@ -608,25 +674,34 @@ function PostCard({
                         onStatusChange?.(post.id, s);
                         setShowMenu(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted/60 flex items-center gap-2"
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 transition-colors"
+                      style={{ color: isDark ? "#e2e8f0" : "#334155" }}
                     >
                       <span
-                        className="w-2 h-2 rounded-full"
+                        className="w-2 h-2 rounded-full flex-shrink-0"
                         style={{ backgroundColor: STATUS_HEX[s] }}
                       />
                       {s}
                     </button>
                   ))}
-                <div className="border-t border-border" />
+                <div
+                  className="border-t"
+                  style={{
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)",
+                  }}
+                />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     setShowMenu(false);
                     onClick();
                   }}
-                  className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted/60"
+                  className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                  style={{ color: isDark ? "#e2e8f0" : "#334155" }}
                 >
-                  Edit
+                  ✏️ Edit
                 </button>
                 {onArchive && (
                   <button
@@ -635,9 +710,9 @@ function PostCard({
                       onArchive(post.id);
                       setShowMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-red-500"
                   >
-                    Delete
+                    🗄️ Archive
                   </button>
                 )}
               </div>
@@ -645,27 +720,43 @@ function PostCard({
           </div>
         </div>
 
-        {/* Progress line — visual representation of content length */}
-        <div className="flex gap-1 mb-4">
+        {/* Content preview */}
+        {preview && (
+          <p
+            className="text-[11px] leading-relaxed mb-3 line-clamp-2"
+            style={{ color: isDark ? "#94a3b8" : "#64748b" }}
+          >
+            {preview}
+          </p>
+        )}
+
+        {/* Progress dots */}
+        <div className="flex gap-1 mb-3">
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
-              className="h-0.5 rounded-full flex-1"
+              className="h-[3px] rounded-full flex-1 transition-all"
               style={{
                 backgroundColor:
-                  i <= Math.ceil((post.content.length / 800) * 4)
-                    ? "#1a1a1a"
-                    : "#e5e7eb",
-                opacity:
-                  i <= Math.ceil((post.content.length / 800) * 4) ? 1 : 0.4,
+                  i <= dots
+                    ? STATUS_HEX[post.status]
+                    : isDark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.08)",
+                opacity: i <= dots ? 0.8 : 1,
               }}
             />
           ))}
         </div>
 
-        {/* Bottom: avatar circle + name + date */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden ring-2 ring-white/60 shadow-sm">
+        {/* Bottom: account avatar + name + date */}
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden shadow-sm"
+            style={{
+              border: `2px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}`,
+            }}
+          >
             {post.accountAvatarUrl ? (
               <img
                 src={post.accountAvatarUrl}
@@ -674,29 +765,40 @@ function PostCard({
               />
             ) : (
               <div
-                className="w-full h-full flex items-center justify-center text-xs font-bold text-white"
+                className="w-full h-full flex items-center justify-center text-[10px] font-bold text-white"
                 style={{ backgroundColor: post.accountColor || "#6366f1" }}
               >
                 {post.accountAvatar}
               </div>
             )}
           </div>
-          <div>
-            <p className="text-[12px] font-semibold text-gray-700 dark:text-gray-200">
+          <div className="flex-1 min-w-0">
+            <p
+              className="text-[11px] font-semibold truncate"
+              style={{ color: isDark ? "#cbd5e1" : "#475569" }}
+            >
               {post.account}
             </p>
-            <p className="text-[10px] text-gray-400">
+            <p
+              className="text-[10px]"
+              style={{ color: isDark ? "#64748b" : "#94a3b8" }}
+            >
               {post.scheduledDate
                 ? post.scheduledDate
                     .replace(/(\d{4})-(\d{2})-(\d{2})/, "$3.$2.$1")
                     .slice(0, 8)
-                : "—"}
+                : "No date"}
+              {post.scheduledTime && ` · ${post.scheduledTime}`}
             </p>
           </div>
-          {post.scheduledTime && (
-            <span className="ml-auto text-[10px] text-gray-400">
-              ⏰ {post.scheduledTime}
-            </span>
+          {/* Assigned member avatar */}
+          {post.assignedAvatar && (
+            <div
+              className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white shadow-sm"
+              style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
+            >
+              {post.assignedAvatar}
+            </div>
           )}
         </div>
       </div>
@@ -2267,7 +2369,7 @@ function EditorModal({
 
           {/* Right Preview — responsive by device */}
           <div
-            className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-300 ${device === "desktop" ? "w-[420px]" : device === "tablet" ? "w-80" : "w-64"}`}
+            className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-300 ${device === "desktop" ? "w-[520px]" : device === "tablet" ? "w-[360px]" : "w-[260px]"}`}
           >
             <div className="px-4 py-2 border-b border-border bg-muted/10 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-semibold text-foreground">
@@ -2390,13 +2492,47 @@ function EditorModal({
                   </div>
                 )}
                 {uploadedFile && uploadedFile.type === "application/pdf" && (
-                  <div className="mx-3 mb-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center gap-2">
-                    <span className="text-2xl">📄</span>
-                    <div>
-                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
-                        {uploadedFile.name}
-                      </p>
-                      <p className="text-[10px] text-red-500">PDF Document</p>
+                  <div className="mx-0 mb-0 border-t border-[#e0ddd8] dark:border-[#38434f]">
+                    {/* LinkedIn-style document carousel card */}
+                    <div className="relative bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900 flex flex-col items-center justify-center py-8 px-4 gap-3">
+                      <div className="w-14 h-14 rounded-xl bg-red-500 flex items-center justify-center shadow-md">
+                        <span className="text-white text-2xl">📄</span>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-[12px] font-bold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[180px]">
+                          {uploadedFile.name}
+                        </p>
+                        <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66] mt-0.5">
+                          PDF · Slide 1 of 1
+                        </p>
+                      </div>
+                      {/* Carousel nav dots — LinkedIn style */}
+                      <div className="flex items-center gap-1.5">
+                        {[0, 1, 2].map((i) => (
+                          <div
+                            key={i}
+                            className={`rounded-full transition-all ${i === 0 ? "w-4 h-1.5 bg-[#0077b5]" : "w-1.5 h-1.5 bg-[#00000020] dark:bg-[#ffffff20]"}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="px-3 py-2 flex items-center justify-between border-t border-[#e0ddd8] dark:border-[#38434f]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded bg-red-500 flex items-center justify-center">
+                          <span className="text-white text-[10px]">PDF</span>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[140px]">
+                            {uploadedFile.name}
+                          </p>
+                          <p className="text-[10px] text-[#00000066]">
+                            Document
+                          </p>
+                        </div>
+                      </div>
+                      <button className="text-[11px] font-semibold text-[#0077b5] hover:underline flex-shrink-0">
+                        View
+                      </button>
                     </div>
                   </div>
                 )}
@@ -2668,21 +2804,54 @@ export default function ContentStudioPage() {
 
   const filtered = posts.filter(
     (p) =>
-      !p.archived &&
-      (filterStatus === "All" || p.status === filterStatus) &&
+      (filterStatus === "All"
+        ? p.status !== "Archived"
+        : p.status === filterStatus) &&
       (filterAcc === "All" ||
         p.account === filterAcc ||
         p.linkedinAccountId === filterAcc),
   );
 
-  const renderCell = (post: Post, col: string) => {
+  const renderCell = (post: Post, col: string): React.ReactNode => {
     const isEditing =
       editingCell?.postId === post.id && editingCell?.col === col;
+
+    // Inline input — shown for ANY column when double-clicked
+    if (isEditing)
+      return (
+        <input
+          autoFocus
+          value={cellValue}
+          onChange={(e) => setCellValue(e.target.value)}
+          onBlur={() => {
+            if (workspace)
+              updateDoc(
+                doc(db, "workspaces", workspace.id, "contentPosts", post.id),
+                { [col]: cellValue },
+              );
+            setEditingCell(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              if (workspace)
+                updateDoc(
+                  doc(db, "workspaces", workspace.id, "contentPosts", post.id),
+                  { [col]: cellValue },
+                );
+              setEditingCell(null);
+            }
+            if (e.key === "Escape") setEditingCell(null);
+          }}
+          className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary text-foreground min-w-[80px]"
+        />
+      );
+
+    // Read-only display per column type
     if (col === "account")
       return (
         <div className="flex items-center gap-1.5">
           <Av i={post.accountAvatar} c={post.accountColor} />
-          <span className="text-xs">{post.account.split(" ")[0]}</span>
+          <span className="text-xs truncate">{post.account}</span>
         </div>
       );
     if (col === "tags")
@@ -2709,54 +2878,27 @@ export default function ContentStudioPage() {
     if (col === "status")
       return (
         <span
-          className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[post.status]}`}
+          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[post.status]}`}
         >
           {post.status}
         </span>
       );
-    if (col === "assignedTo") return <Av i={post.assignedAvatar} c="#6366f1" />;
+    if (col === "assignedTo")
+      return (
+        <div className="flex items-center gap-1.5">
+          <Av i={post.assignedAvatar} c="#6366f1" />
+          <span className="text-xs">{post.assignedTo || "—"}</span>
+        </div>
+      );
     if (col === "comments")
       return (
         <span className="text-xs text-muted-foreground">
           {(post.comments || []).filter((c) => c.text).length}
         </span>
       );
-    if (isEditing)
-      return (
-        <input
-          autoFocus
-          value={cellValue}
-          onChange={(e) => setCellValue(e.target.value)}
-          onBlur={() => {
-            if (workspace)
-              updateDoc(
-                doc(db, "workspaces", workspace.id, "contentPosts", post.id),
-                { [col]: cellValue },
-              );
-            setEditingCell(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === "Escape") {
-              if (workspace)
-                updateDoc(
-                  doc(db, "workspaces", workspace.id, "contentPosts", post.id),
-                  { [col]: cellValue },
-                );
-              setEditingCell(null);
-            }
-          }}
-          className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary rounded focus:outline-none text-foreground"
-        />
-      );
     return (
-      <span
-        className="text-xs text-foreground cursor-text hover:bg-muted/50 rounded px-1 py-0.5 block truncate max-w-[140px]"
-        onClick={() => {
-          setEditingCell({ postId: post.id, col });
-          setCellValue(post[col] ?? "");
-        }}
-      >
-        {post[col] ?? "—"}
+      <span className="text-xs text-foreground block truncate max-w-[160px]">
+        {String(post[col] ?? "—")}
       </span>
     );
   };
@@ -2822,7 +2964,9 @@ export default function ContentStudioPage() {
         )}
 
         <div className="flex gap-1.5">
-          {(["All", "Draft", "Scheduled", "Published"] as const).map((s) => (
+          {(
+            ["All", "Draft", "Scheduled", "Published", "Archived"] as const
+          ).map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
@@ -2873,7 +3017,9 @@ export default function ContentStudioPage() {
           animate={{ opacity: 1 }}
           className="flex gap-4 flex-1 overflow-x-auto pb-2"
         >
-          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((col) => {
+          {(
+            ["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]
+          ).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
             return (
               <div
@@ -2947,16 +3093,23 @@ export default function ContentStudioPage() {
                               "contentPosts",
                               id,
                             ),
-                            { archived: true },
+                            { status: "Archived" },
                           );
                       }}
                     />
                   ))}
                   {colPosts.length === 0 && (
-                    <div className="h-24 rounded-xl border-2 border-dashed border-border/50 flex items-center justify-center">
-                      <span className="text-xs text-muted-foreground">
-                        No {col.toLowerCase()} posts
-                      </span>
+                    <div
+                      className={`h-24 rounded-xl border-2 border-dashed flex items-center justify-center ${col === "Archived" ? "border-zinc-300/40 dark:border-zinc-600/30" : "border-border/50"}`}
+                    >
+                      <div className="text-center">
+                        {col === "Archived" ? (
+                          <Archive className="w-4 h-4 text-muted-foreground/40 mx-auto mb-1" />
+                        ) : null}
+                        <span className="text-xs text-muted-foreground/60">
+                          No {col.toLowerCase()} posts
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3421,31 +3574,56 @@ export default function ContentStudioPage() {
                             const ec = EVENT_COLORS[ev.color];
                             const isForMe = ev.assignedToUid === user?.uid;
                             return (
-                              <div
+                              <motion.div
                                 key={ev.id}
-                                className={`mb-1 rounded-lg px-1.5 py-1 border ${ec.bg} ${ec.border} ${isForMe ? "ring-1 ring-offset-1" : ""}`}
+                                initial={{ opacity: 0, y: 4 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="mb-1 rounded-xl overflow-hidden cursor-pointer group/ev shadow-sm hover:shadow-md transition-all"
+                                style={{
+                                  backgroundColor: ec.hex + "18",
+                                  border: `1px solid ${ec.hex}30`,
+                                }}
                               >
-                                <div className="flex items-center gap-1">
-                                  <span
-                                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                                    style={{ backgroundColor: ec.hex }}
-                                  />
-                                  <span
-                                    className="text-[10px] font-semibold truncate flex-1"
+                                {/* Top colour bar */}
+                                <div
+                                  className="h-0.5 w-full"
+                                  style={{ backgroundColor: ec.hex }}
+                                />
+                                <div className="px-2 py-1.5">
+                                  <p
+                                    className="text-[10px] font-bold leading-tight truncate"
                                     style={{ color: ec.hex }}
                                   >
                                     {ev.title}
-                                  </span>
-                                  {isForMe && (
-                                    <span className="text-[8px] bg-white/60 dark:bg-black/30 rounded px-0.5 text-gray-500">
-                                      you
-                                    </span>
-                                  )}
+                                  </p>
+                                  <div className="flex items-center justify-between mt-1 gap-1">
+                                    <p className="text-[9px] text-muted-foreground font-medium">
+                                      {ev.time}–{ev.endTime}
+                                    </p>
+                                    <div className="flex items-center gap-1">
+                                      {isForMe && (
+                                        <span
+                                          className="text-[8px] font-bold px-1 py-0.5 rounded"
+                                          style={{
+                                            backgroundColor: ec.hex + "30",
+                                            color: ec.hex,
+                                          }}
+                                        >
+                                          you
+                                        </span>
+                                      )}
+                                      {ev.assignedAvatar && !isForMe && (
+                                        <div
+                                          className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-bold text-white"
+                                          style={{ backgroundColor: ec.hex }}
+                                        >
+                                          {ev.assignedAvatar}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                                <p className="text-[9px] text-muted-foreground mt-0.5">
-                                  {ev.time}–{ev.endTime}
-                                </p>
-                              </div>
+                              </motion.div>
                             );
                           })}
                           <AnimatePresence>
@@ -3560,48 +3738,65 @@ export default function ContentStudioPage() {
                       <div className="p-2 space-y-2">
                         {dayEvents.map((ev) => {
                           const ec = EVENT_COLORS[ev.color];
+                          const isForMe = ev.assignedToUid === user?.uid;
                           return (
-                            <div
+                            <motion.div
                               key={ev.id}
-                              className={`rounded-xl px-3 py-2.5 border ${ec.bg} ${ec.border}`}
+                              initial={{ opacity: 0, x: -4 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              className="rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer"
+                              style={{
+                                backgroundColor: ec.hex + "15",
+                                border: `1px solid ${ec.hex}35`,
+                              }}
                             >
-                              <div className="flex items-center gap-2 mb-1">
-                                <span
-                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                              {/* Left accent */}
+                              <div className="flex">
+                                <div
+                                  className="w-1 flex-shrink-0 rounded-l-xl"
                                   style={{ backgroundColor: ec.hex }}
                                 />
-                                <p
-                                  className="text-[11px] font-bold truncate"
-                                  style={{ color: ec.hex }}
-                                >
-                                  {ev.title}
-                                </p>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground">
-                                ⏰ {ev.time} → {ev.endTime}
-                              </p>
-                              {ev.assignedTo && (
-                                <div className="flex items-center gap-1.5 mt-1.5">
-                                  <div className="w-4 h-4 rounded-full gradient-primary flex items-center justify-center text-[7px] font-bold text-white">
-                                    {ev.assignedAvatar}
-                                  </div>
-                                  <span className="text-[9px] text-muted-foreground">
-                                    {ev.assignedTo.split(" ")[0]}
-                                  </span>
+                                <div className="flex-1 px-2.5 py-2">
+                                  <p
+                                    className="text-[12px] font-bold leading-snug"
+                                    style={{ color: ec.hex }}
+                                  >
+                                    {ev.title}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    ⏰ {ev.time} → {ev.endTime}
+                                  </p>
+                                  {ev.assignedTo && (
+                                    <div className="flex items-center gap-1.5 mt-1.5">
+                                      <div
+                                        className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
+                                        style={{ backgroundColor: ec.hex }}
+                                      >
+                                        {ev.assignedAvatar}
+                                      </div>
+                                      <span
+                                        className="text-[10px] font-medium"
+                                        style={{ color: ec.hex + "cc" }}
+                                      >
+                                        {ev.assignedTo.split(" ")[0]}
+                                        {isForMe ? " (you)" : ""}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {ev.reminders.length > 0 && (
+                                    <p className="text-[9px] text-muted-foreground/60 mt-1">
+                                      🔔{" "}
+                                      {ev.reminders
+                                        .map((m) =>
+                                          m < 60 ? `${m}min` : `${m / 60}h`,
+                                        )
+                                        .join(", ")}{" "}
+                                      before
+                                    </p>
+                                  )}
                                 </div>
-                              )}
-                              {ev.reminders.length > 0 && (
-                                <p className="text-[9px] text-muted-foreground/60 mt-1">
-                                  🔔{" "}
-                                  {ev.reminders
-                                    .map((m) =>
-                                      m < 60 ? `${m}min` : `${m / 60}h`,
-                                    )
-                                    .join(", ")}{" "}
-                                  before
-                                </p>
-                              )}
-                            </div>
+                              </div>
+                            </motion.div>
                           );
                         })}
                         {dayPosts.map((p) => (
