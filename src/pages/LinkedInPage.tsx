@@ -3661,6 +3661,12 @@ export default function LinkedInPage() {
 
   // OAuth callback handler — runs ONLY when URL params change, never on workspace load
   useEffect(() => {
+    // Read hash token FIRST — before any early returns wipe it
+    const hashRaw = window.location.hash;
+    const hashMatch = hashRaw.match(/[#&]t=([^&]+)/);
+    const hashToken = hashMatch ? decodeURIComponent(hashMatch[1]) : "";
+    if (hashToken) window.location.hash = ""; // clear immediately
+
     const linkedinName = searchParams.get("linkedin_name");
     const error = searchParams.get("error");
 
@@ -3686,7 +3692,15 @@ export default function LinkedInPage() {
       const linkedinId = searchParams.get("linkedin_id") || "";
       const headline = searchParams.get("linkedin_headline") || "";
       const avatarUrl = searchParams.get("linkedin_avatar") || "";
-      const accessToken = searchParams.get("access_token") || "";
+      const accessToken = searchParams.get("access_token") || hashToken;
+      console.log(
+        "[LinkedIn OAuth] hash had token:",
+        !!hashToken,
+        "| final token length:",
+        accessToken.length,
+        "| first 20:",
+        accessToken.slice(0, 20),
+      );
       setSearchParams({});
 
       // Wait for workspace to be ready (it may still be loading)
