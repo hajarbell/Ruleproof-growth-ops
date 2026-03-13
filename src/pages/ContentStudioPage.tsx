@@ -39,6 +39,7 @@ import {
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLinkedInAccounts } from "@/hooks/useLinkedInAccounts";
+import { useGoogleCalendar, GCAL_COLOR_MAP } from "@/hooks/useGoogleCalendar";
 import type { LinkedInAccount } from "@/pages/LinkedInPage";
 import type { WorkspaceMember } from "@/contexts/AuthContext";
 
@@ -126,6 +127,8 @@ interface Post {
   gcalEventId?: string;
   publishedUrl?: string;
   archived?: boolean;
+  accountAvatarUrl?: string;
+  uploadedFileUrl?: string;
   [key: string]: any;
 }
 
@@ -524,137 +527,178 @@ function StatsStrip({ posts }: { posts: Post[] }) {
 }
 
 // ─── Post Card ────────────────────────────────────────────────────────────────
+// Status → card background colors matching reference screenshot
+const CARD_STATUS_BG: Record<PostStatus, string> = {
+  Scheduled: "bg-violet-100 dark:bg-violet-900/30",
+  Draft: "bg-white dark:bg-zinc-800/60",
+  Published: "bg-zinc-100 dark:bg-zinc-700/40",
+};
+const CARD_STATUS_BG_HEX: Record<PostStatus, string> = {
+  Scheduled: "#ede9fe",
+  Draft: "#ffffff",
+  Published: "#f4f4f5",
+};
+
 function PostCard({
   post,
   onClick,
   onArchive,
+  onStatusChange,
 }: {
   post: Post;
   onClick: () => void;
   onArchive?: (id: string) => void;
+  onStatusChange?: (id: string, status: PostStatus) => void;
 }) {
-  const bg = post.cardColor || "transparent";
-  const isLight = bg !== "transparent";
-  const previewComments = post.comments.filter((c) => c.text).slice(0, 2);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMenu) return;
+    const h = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node))
+        setShowMenu(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [showMenu]);
+
+  const cardBg = post.cardColor || CARD_STATUS_BG_HEX[post.status];
 
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl overflow-hidden shadow-soft hover:shadow-lg transition-all cursor-pointer border border-border/60 hover:border-primary/30 group"
-      style={{ backgroundColor: isLight ? bg : undefined }}
+      className="rounded-2xl overflow-visible shadow-sm hover:shadow-md transition-all cursor-pointer group relative"
+      style={{ backgroundColor: cardBg }}
       draggable
       onDragStart={(e) => {
-        if (e.dataTransfer) e.dataTransfer.setData("postId", post.id);
+        (e as unknown as DragEvent).dataTransfer?.setData("postId", post.id);
       }}
     >
-      <div
-        className="h-1 w-full"
-        style={{ backgroundColor: STATUS_HEX[post.status] }}
-      />
       <div className="p-4" onClick={onClick}>
+        {/* Top row: title + menu */}
         <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-2.5">
-            {post.accountAvatar && (
+          <h4 className="text-[13px] font-semibold text-gray-800 dark:text-gray-100 leading-snug flex-1 pr-2 line-clamp-2">
+            {post.theme || post.content.slice(0, 40)}
+          </h4>
+          <div className="relative flex-shrink-0" ref={menuRef}>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMenu(!showMenu);
+              }}
+              className="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-gray-400 transition-colors"
+            >
+              <span className="text-sm font-bold leading-none tracking-widest">
+                ···
+              </span>
+            </button>
+            {showMenu && (
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ring-2 ring-white/20"
-                style={{ backgroundColor: post.accountColor }}
+                className="absolute right-0 top-7 z-30 bg-white dark:bg-zinc-800 rounded-xl border border-border shadow-xl overflow-hidden w-40"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {(["Draft", "Scheduled", "Published"] as PostStatus[])
+                  .filter((s) => s !== post.status)
+                  .map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        onStatusChange?.(post.id, s);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted/60 flex items-center gap-2"
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: STATUS_HEX[s] }}
+                      />
+                      {s}
+                    </button>
+                  ))}
+                <div className="border-t border-border" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMenu(false);
+                    onClick();
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs text-foreground hover:bg-muted/60"
+                >
+                  Edit
+                </button>
+                {onArchive && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onArchive(post.id);
+                      setShowMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Progress line — visual representation of content length */}
+        <div className="flex gap-1 mb-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-0.5 rounded-full flex-1"
+              style={{
+                backgroundColor:
+                  i <= Math.ceil((post.content.length / 800) * 4)
+                    ? "#1a1a1a"
+                    : "#e5e7eb",
+                opacity:
+                  i <= Math.ceil((post.content.length / 800) * 4) ? 1 : 0.4,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Bottom: avatar circle + name + date */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full flex-shrink-0 overflow-hidden ring-2 ring-white/60 shadow-sm">
+            {post.accountAvatarUrl ? (
+              <img
+                src={post.accountAvatarUrl}
+                className="w-full h-full object-cover"
+                alt=""
+              />
+            ) : (
+              <div
+                className="w-full h-full flex items-center justify-center text-xs font-bold text-white"
+                style={{ backgroundColor: post.accountColor || "#6366f1" }}
               >
                 {post.accountAvatar}
               </div>
             )}
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                {post.account.split(" ")[0]}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                {post.accountBio?.slice(0, 30) ||
-                  (post.accountFollowers
-                    ? `${post.accountFollowers.toLocaleString()} followers`
-                    : "")}
-              </p>
-            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[post.status]}`}
-            >
-              {post.status}
+          <div>
+            <p className="text-[12px] font-semibold text-gray-700 dark:text-gray-200">
+              {post.account}
+            </p>
+            <p className="text-[10px] text-gray-400">
+              {post.scheduledDate
+                ? post.scheduledDate
+                    .replace(/(\d{4})-(\d{2})-(\d{2})/, "$3.$2.$1")
+                    .slice(0, 8)
+                : "—"}
+            </p>
+          </div>
+          {post.scheduledTime && (
+            <span className="ml-auto text-[10px] text-gray-400">
+              ⏰ {post.scheduledTime}
             </span>
-            {onArchive && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onArchive(post.id);
-                }}
-                className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-all"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        </div>
-        <h4 className="text-sm font-bold text-foreground mb-2 line-clamp-1">
-          {post.theme}
-        </h4>
-        <p className="text-xs text-muted-foreground line-clamp-3 mb-3 leading-relaxed">
-          {post.content}
-        </p>
-        {previewComments.length > 0 && (
-          <div className="mb-3 space-y-1.5">
-            {previewComments.map((c) => (
-              <div
-                key={c.id}
-                className="flex items-start gap-1.5 px-2.5 py-1.5 rounded-lg bg-black/5 dark:bg-white/5"
-              >
-                <MessageSquare className="w-2.5 h-2.5 text-muted-foreground mt-0.5 flex-shrink-0" />
-                <p className="text-[10px] text-muted-foreground line-clamp-1">
-                  {c.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex flex-wrap gap-1 mb-3">
-          {post.tags.slice(0, 2).map((tag) => (
-            <span
-              key={tag}
-              className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${TAG_COLORS[tag]}`}
-            >
-              {tag}
-            </span>
-          ))}
-          <span
-            className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${FUNNEL_COLORS[post.funnel]}`}
-          >
-            {post.funnel}
-          </span>
-        </div>
-        <div className="flex items-center justify-between pt-2.5 border-t border-black/8 dark:border-white/8">
-          <div className="flex items-center gap-1.5">
-            <Clock className="w-3 h-3 text-muted-foreground" />
-            <span className="text-[10px] text-muted-foreground font-medium">
-              {post.scheduledDate}
-              {post.scheduledTime && ` · ${post.scheduledTime}`}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {post.comments.filter((c) => c.text).length > 0 && (
-              <div className="flex items-center gap-0.5">
-                <MessageSquare className="w-3 h-3 text-muted-foreground" />
-                <span className="text-[10px] text-muted-foreground">
-                  {post.comments.filter((c) => c.text).length}
-                </span>
-              </div>
-            )}
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-              style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
-            >
-              {post.assignedAvatar}
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -1008,6 +1052,13 @@ function EditorModal({
     post?.assignmentComment ?? "",
   );
   const [emojiTab, setEmojiTab] = useState<"emoji" | "chars">("emoji");
+  const [uploadedFile, setUploadedFile] = useState<{
+    name: string;
+    type: string;
+    previewUrl: string;
+    size: number;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const emojiPanelRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1079,6 +1130,68 @@ function EditorModal({
     });
   };
 
+  const [publishing, setPublishing] = useState(false);
+  const [publishResult, setPublishResult] = useState<
+    "success" | "error" | null
+  >(null);
+
+  const handlePublishToLinkedIn = async () => {
+    if (!selAcc) return;
+    const token = (selAcc as any).accessToken;
+    if (!token) {
+      alert(
+        "No LinkedIn access token found. Please reconnect this account on the LinkedIn page.",
+      );
+      return;
+    }
+    setPublishing(true);
+    setPublishResult(null);
+    try {
+      // Get the LinkedIn person URN (stored as linkedinId = profile.sub from userinfo endpoint)
+      const authorUrn = `urn:li:person:${selAcc.linkedinId}`;
+
+      // UGC Posts API — requires Share on LinkedIn + Sign In with LinkedIn products
+      const body = {
+        author: authorUrn,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": {
+            shareCommentary: { text: content },
+            shareMediaCategory: "NONE",
+          },
+        },
+        visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
+      };
+
+      const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "X-Restli-Protocol-Version": "2.0.0",
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setPublishResult("success");
+        // Auto-update status to Published
+        setStatus("Published");
+        console.log("Published post ID:", data.id);
+      } else {
+        const err = await res.json();
+        console.error("LinkedIn publish error:", err);
+        setPublishResult("error");
+      }
+    } catch (e) {
+      console.error("LinkedIn publish failed:", e);
+      setPublishResult("error");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const handleSave = () => {
     if (!selAcc) return;
     const saved: Post = {
@@ -1089,6 +1202,8 @@ function EditorModal({
       accountColor: selAcc.avatarColor || "#6366f1",
       accountBio: selAcc.headline,
       accountFollowers: selAcc.followers,
+      accountAvatarUrl: selAcc.avatarUrl,
+      uploadedFileUrl: uploadedFile?.previewUrl,
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
       assignedAvatar: memberInitials(selMember ?? {}),
@@ -1115,6 +1230,7 @@ function EditorModal({
   };
 
   const EMOJIS = [
+    // Smileys & Faces (40)
     "😀",
     "😁",
     "😂",
@@ -1155,6 +1271,7 @@ function EditorModal({
     "😌",
     "😛",
     "😜",
+    // Hearts & Emotions (20)
     "❤️",
     "🧡",
     "💛",
@@ -1173,6 +1290,9 @@ function EditorModal({
     "💖",
     "💘",
     "💝",
+    "🥹",
+    "😭",
+    // Hands & Gestures (25)
     "👍",
     "👎",
     "👊",
@@ -1184,16 +1304,21 @@ function EditorModal({
     "🤟",
     "🤘",
     "👌",
+    "🤌",
+    "🤏",
     "👈",
     "👉",
     "👆",
     "👇",
     "☝️",
     "👋",
+    "🤚",
     "✋",
-    "💪",
+    "🖐️",
     "🙏",
     "👏",
+    "🫶",
+    // Business & Achievement (30)
     "🔥",
     "⭐",
     "💫",
@@ -1203,6 +1328,7 @@ function EditorModal({
     "🎯",
     "🏆",
     "🥇",
+    "🎖️",
     "🎁",
     "🎉",
     "🎈",
@@ -1214,42 +1340,128 @@ function EditorModal({
     "💎",
     "💰",
     "📈",
+    "📉",
+    "📊",
     "🚀",
     "🌍",
     "🧠",
     "👑",
     "🦁",
-    "🌸",
-    "🌺",
-    "🌙",
-    "☀️",
     "💼",
     "📋",
+    // Office & Content (30)
     "📌",
     "📎",
-    "📊",
+    "🖇️",
+    "📏",
+    "📐",
+    "✂️",
+    "🗂️",
+    "📁",
+    "📂",
     "📝",
+    "📃",
+    "📄",
+    "📑",
     "📧",
+    "📨",
+    "📩",
     "✏️",
+    "🖊️",
+    "🖋️",
+    "📓",
+    "📔",
+    "📒",
+    "📕",
+    "📗",
+    "📘",
+    "📙",
     "📚",
+    "🖥️",
+    "💻",
+    "📱",
+    // Nature & Misc (30)
+    "🌸",
+    "🌺",
+    "🌻",
+    "🌹",
+    "🍀",
+    "🌿",
+    "🌱",
+    "🌳",
+    "🏔️",
+    "🌊",
+    "🌙",
+    "☀️",
+    "⛅",
+    "🌈",
+    "🦋",
+    "🐝",
+    "🌺",
+    "🦊",
+    "🐯",
+    "🦁",
+    "🎨",
+    "🎭",
+    "🎬",
+    "🎵",
+    "🎶",
+    "🎸",
+    "🏋️",
+    "🧘",
+    "🤸",
+    "🏊",
+    // LinkedIn-popular extras (25)
+    "💭",
+    "🗣️",
+    "👥",
+    "🤝",
+    "🌐",
+    "📢",
+    "📣",
+    "🔔",
+    "🔕",
+    "💬",
+    "🗨️",
+    "💡",
+    "🔍",
+    "🔎",
+    "📍",
+    "🗺️",
+    "🏢",
+    "🏦",
+    "🏗️",
+    "⚙️",
+    "🔧",
+    "🛠️",
+    "🔨",
+    "⚗️",
+    "🧪",
   ];
 
   const LINKEDIN_CHARS = [
+    // Arrows (20)
     "→",
     "←",
     "↑",
     "↓",
     "↗",
     "↘",
+    "↙",
+    "↖",
     "⟶",
+    "⟵",
     "⇒",
     "⇐",
+    "⇑",
+    "⇓",
     "➜",
     "➔",
+    "➝",
+    "➞",
     "►",
     "◄",
-    "▲",
-    "▼",
+    // Bullets & Lists (20)
     "•",
     "●",
     "○",
@@ -1257,10 +1469,20 @@ function EditorModal({
     "◇",
     "▸",
     "▹",
+    "▷",
     "◉",
     "⦿",
     "⁃",
     "‣",
+    "⊙",
+    "◈",
+    "⬥",
+    "⬦",
+    "■",
+    "□",
+    "▪",
+    "▫",
+    // Numbered circles (20)
     "①",
     "②",
     "③",
@@ -1271,6 +1493,17 @@ function EditorModal({
     "⑧",
     "⑨",
     "⑩",
+    "⑪",
+    "⑫",
+    "⑬",
+    "⑭",
+    "⑮",
+    "⑯",
+    "⑰",
+    "⑱",
+    "⑲",
+    "⑳",
+    // Stars & Decorative (20)
     "★",
     "☆",
     "✦",
@@ -1283,16 +1516,31 @@ function EditorModal({
     "✮",
     "✯",
     "✰",
+    "⭐",
+    "🌟",
+    "✴️",
+    "✳️",
+    "❇️",
+    "💠",
+    "🔷",
+    "🔹",
+    // Lines & Separators (15)
     "—",
     "–",
     "―",
     "│",
     "┃",
+    "╎",
+    "╏",
     "║",
     "▌",
     "▍",
     "▎",
     "▏",
+    "▐",
+    "▕",
+    "═",
+    // Checks & Status (15)
     "✓",
     "✔",
     "✗",
@@ -1303,6 +1551,23 @@ function EditorModal({
     "❌",
     "⊕",
     "⊗",
+    "⊘",
+    "⊛",
+    "🔘",
+    "🔲",
+    "🔳",
+    // Brackets & Quotes (10)
+    "《",
+    "》",
+    "「",
+    "」",
+    "『",
+    "』",
+    "【",
+    "】",
+    "〖",
+    "〗",
+    // Math & Special (15)
     "∞",
     "≈",
     "≠",
@@ -1312,7 +1577,54 @@ function EditorModal({
     "÷",
     "×",
     "∑",
+    "∏",
     "√",
+    "∩",
+    "∪",
+    "∈",
+    "∉",
+    // Lettered circles (25)
+    "Ⓐ",
+    "Ⓑ",
+    "Ⓒ",
+    "Ⓓ",
+    "Ⓔ",
+    "Ⓕ",
+    "Ⓖ",
+    "Ⓗ",
+    "Ⓘ",
+    "Ⓙ",
+    "Ⓚ",
+    "Ⓛ",
+    "Ⓜ",
+    "Ⓝ",
+    "Ⓞ",
+    "Ⓟ",
+    "Ⓠ",
+    "Ⓡ",
+    "Ⓢ",
+    "Ⓣ",
+    "Ⓤ",
+    "Ⓥ",
+    "Ⓦ",
+    "Ⓧ",
+    "Ⓨ",
+    // Currency & misc (15)
+    "€",
+    "£",
+    "¥",
+    "¢",
+    "₹",
+    "₩",
+    "₪",
+    "฿",
+    "₿",
+    "©",
+    "®",
+    "™",
+    "°",
+    "¶",
+    "§",
   ];
 
   return (
@@ -1713,6 +2025,69 @@ function EditorModal({
                 className="w-full min-h-[180px] rounded-lg bg-muted/50 border border-border px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none leading-relaxed"
               />
 
+              {/* File upload */}
+              <div className="border border-dashed border-border rounded-xl p-3">
+                <div className="flex items-center gap-3">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const url = URL.createObjectURL(file);
+                      setUploadedFile({
+                        name: file.name,
+                        type: file.type,
+                        previewUrl: url,
+                        size: file.size,
+                      });
+                    }}
+                  />
+                  {uploadedFile ? (
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      {uploadedFile.type.startsWith("image/") ? (
+                        <img
+                          src={uploadedFile.previewUrl}
+                          alt=""
+                          className="w-12 h-12 rounded-lg object-cover flex-shrink-0 border border-border"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xl">📄</span>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-foreground truncate">
+                          {uploadedFile.name}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {(uploadedFile.size / 1024).toFixed(0)} KB ·{" "}
+                          {uploadedFile.type.startsWith("image/")
+                            ? "Image"
+                            : "PDF"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setUploadedFile(null)}
+                        className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground flex-shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground w-full justify-center py-1"
+                    >
+                      <Image className="w-4 h-4" />
+                      <span>Upload image, PDF or carousel visual</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
               {/* Emoji picker */}
               <div className="relative" ref={emojiPanelRef}>
                 <button
@@ -1891,8 +2266,10 @@ function EditorModal({
             </div>
           </div>
 
-          {/* Right Preview */}
-          <div className="w-72 flex-shrink-0 flex flex-col overflow-hidden">
+          {/* Right Preview — responsive by device */}
+          <div
+            className={`flex-shrink-0 flex flex-col overflow-hidden transition-all duration-300 ${device === "desktop" ? "w-[420px]" : device === "tablet" ? "w-80" : "w-64"}`}
+          >
             <div className="px-4 py-2 border-b border-border bg-muted/10 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-semibold text-foreground">
                 Preview
@@ -1900,14 +2277,15 @@ function EditorModal({
               <div className="flex gap-1">
                 {(
                   [
-                    ["desktop", Monitor],
-                    ["mobile", Smartphone],
-                    ["tablet", Tablet],
+                    ["desktop", Monitor, "Desktop"],
+                    ["tablet", Tablet, "Tablet"],
+                    ["mobile", Smartphone, "Mobile"],
                   ] as const
-                ).map(([d, Icon]) => (
+                ).map(([d, Icon, label]) => (
                   <button
                     key={d}
                     onClick={() => setDevice(d as PreviewDevice)}
+                    title={label}
                     className={`p-1.5 rounded-lg ${device === d ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -1916,132 +2294,236 @@ function EditorModal({
               </div>
             </div>
             <div className="flex-1 overflow-y-auto p-3 bg-[#f3f2ef] dark:bg-[#1b1f23]">
-              <div
-                className={`mx-auto transition-all ${device === "mobile" ? "max-w-[240px]" : device === "tablet" ? "max-w-[280px]" : "max-w-full"}`}
-              >
-                <div className="bg-white dark:bg-[#1d2226] rounded-xl border border-[#e0ddd8] dark:border-[#38434f] overflow-hidden shadow-sm">
-                  <div className="p-3 flex items-start gap-2.5">
-                    {selAcc?.avatarUrl ? (
-                      <img
-                        src={selAcc.avatarUrl}
-                        className="w-10 h-10 rounded-full object-cover flex-shrink-0 ring-1 ring-border"
-                        alt=""
-                      />
-                    ) : (
-                      <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                        style={{
-                          backgroundColor: selAcc?.avatarColor || "#0077b5",
-                        }}
-                      >
-                        {selAcc
-                          ? selAcc.avatarInitials ||
-                            selAcc.name.slice(0, 2).toUpperCase()
-                          : "?"}
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] leading-tight">
-                        {selAcc?.name || "Your Name"}
-                      </p>
-                      <p className="text-[11px] text-[#00000099] dark:text-[#ffffff73] line-clamp-1 leading-tight mt-0.5">
+              {/* LinkedIn post card — pixel-accurate */}
+              <div className="bg-white dark:bg-[#1d2226] rounded-lg border border-[#e0ddd8] dark:border-[#38434f] overflow-hidden shadow-sm">
+                {/* Header */}
+                <div className="p-3 flex items-start gap-2.5">
+                  {selAcc?.avatarUrl ? (
+                    <img
+                      src={selAcc.avatarUrl}
+                      className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                      alt=""
+                    />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
+                      style={{
+                        backgroundColor: selAcc?.avatarColor || "#0077b5",
+                      }}
+                    >
+                      {selAcc
+                        ? selAcc.avatarInitials ||
+                          selAcc.name.slice(0, 2).toUpperCase()
+                        : "?"}
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className={`font-semibold text-[#000000e6] dark:text-[#ffffffd9] leading-tight ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
+                    >
+                      {selAcc?.name || "Your Name"}
+                    </p>
+                    {device !== "mobile" && (
+                      <p className="text-[12px] text-[#00000099] dark:text-[#ffffff73] line-clamp-1 leading-tight mt-0.5">
                         {selAcc?.headline || "Your headline"}
                       </p>
-                      <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66] mt-0.5">
-                        2w • 🌐
-                      </p>
-                    </div>
-                    <div className="text-[#00000066] dark:text-[#ffffff66] text-lg leading-none">
-                      ···
-                    </div>
+                    )}
+                    <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66] mt-0.5">
+                      Just now • 🌐
+                    </p>
                   </div>
-                  <div className="px-3 pb-2">
-                    {(() => {
-                      const lines = content.split("\n");
-                      const hasMore = lines.length > 3 || content.length > 220;
-                      const preview = hasMore ? content.slice(0, 220) : content;
-                      return (
-                        <div>
-                          <p className="text-[13px] text-[#000000e6] dark:text-[#ffffffd9] whitespace-pre-line leading-[1.5]">
-                            {preview}
-                            {hasMore && "…"}
-                          </p>
-                          {hasMore && (
-                            <button className="text-[13px] text-[#00000099] dark:text-[#ffffff73] font-semibold hover:underline">
-                              …read more
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div className="px-3 py-1.5 flex items-center gap-1 border-t border-[#e0ddd8] dark:border-[#38434f]">
-                    <div className="flex -space-x-0.5">
-                      {["👍", "❤️", "💡"].map((r) => (
-                        <span
-                          key={r}
-                          className="w-4 h-4 rounded-full bg-white dark:bg-[#1d2226] flex items-center justify-center text-[10px] ring-1 ring-[#e0ddd8]"
-                        >
-                          {r}
-                        </span>
-                      ))}
-                    </div>
-                    <span className="text-[11px] text-[#00000066] dark:text-[#ffffff66] ml-1 flex-1">
-                      42
-                    </span>
-                    <span className="text-[11px] text-[#00000066] dark:text-[#ffffff66]">
-                      8 comments
-                    </span>
-                  </div>
-                  <div className="flex items-center border-t border-[#e0ddd8] dark:border-[#38434f]">
-                    {[
-                      ["👍", "Like"],
-                      ["💬", "Comment"],
-                      ["🔁", "Repost"],
-                      ["📤", "Send"],
-                    ].map(([icon, label]) => (
-                      <button
-                        key={label}
-                        className="flex-1 flex items-center justify-center gap-1 py-2.5 hover:bg-[#f3f2ef] dark:hover:bg-[#ffffff12] transition-colors"
-                      >
-                        <span className="text-sm">{icon}</span>
-                        {device !== "mobile" && (
-                          <span className="text-[11px] font-semibold text-[#00000099] dark:text-[#ffffff73]">
-                            {label}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                  <div className="text-[#00000066] dark:text-[#ffffff66] text-lg leading-none flex-shrink-0">
+                    ···
                   </div>
                 </div>
-                {comments.filter((c) => c.text).length > 0 && (
-                  <div className="mt-2 space-y-1.5">
-                    {comments
-                      .filter((c) => c.text)
-                      .slice(0, 2)
-                      .map((c) => (
-                        <div
-                          key={c.id}
-                          className="bg-white dark:bg-[#1d2226] rounded-xl border border-[#e0ddd8] dark:border-[#38434f] px-3 py-2 flex gap-2"
+
+                {/* Content — shows first 3 lines then "...see more" */}
+                <div className="px-3 pb-2">
+                  {(() => {
+                    const lines = content.split("\n");
+                    // LinkedIn shows ~3 lines before "...see more"
+                    const CHAR_LIMIT =
+                      device === "mobile"
+                        ? 120
+                        : device === "tablet"
+                          ? 180
+                          : 260;
+                    const LINE_LIMIT = 3;
+                    const truncateLines = lines.slice(0, LINE_LIMIT).join("\n");
+                    const needsMore =
+                      lines.length > LINE_LIMIT || content.length > CHAR_LIMIT;
+                    const displayText = needsMore
+                      ? truncateLines.length > CHAR_LIMIT
+                        ? truncateLines.slice(0, CHAR_LIMIT)
+                        : truncateLines
+                      : content;
+                    return (
+                      <div>
+                        <p
+                          className={`text-[#000000e6] dark:text-[#ffffffd9] whitespace-pre-line leading-[1.5] ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
                         >
-                          <div
-                            className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white"
-                            style={{
-                              backgroundColor: selAcc?.avatarColor || "#0077b5",
-                            }}
+                          {displayText || (
+                            <span className="text-[#00000044]">
+                              Your post content will appear here...
+                            </span>
+                          )}
+                        </p>
+                        {needsMore && content && (
+                          <button
+                            className={`text-[#00000066] dark:text-[#ffffff66] font-semibold ${device === "mobile" ? "text-[12px]" : "text-[14px]"}`}
                           >
-                            {selAcc?.name.slice(0, 1) || "?"}
-                          </div>
-                          <div>
-                            <p className="text-[10px] font-semibold text-[#000000e6] dark:text-[#ffffffd9]">
-                              {selAcc?.name?.split(" ")[0]}
-                            </p>
-                            <p className="text-[10px] text-[#000000cc] dark:text-[#ffffffcc] leading-snug line-clamp-2">
-                              {c.text}
-                            </p>
-                          </div>
+                            …see more
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Uploaded image/PDF preview */}
+                {uploadedFile && uploadedFile.type.startsWith("image/") && (
+                  <div className="mx-0 mb-0">
+                    <img
+                      src={uploadedFile.previewUrl}
+                      alt="attachment"
+                      className="w-full max-h-64 object-cover"
+                    />
+                  </div>
+                )}
+                {uploadedFile && uploadedFile.type === "application/pdf" && (
+                  <div className="mx-3 mb-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-center gap-2">
+                    <span className="text-2xl">📄</span>
+                    <div>
+                      <p className="text-xs font-semibold text-red-700 dark:text-red-300">
+                        {uploadedFile.name}
+                      </p>
+                      <p className="text-[10px] text-red-500">PDF Document</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reactions */}
+                <div className="px-3 py-1.5 flex items-center gap-1 border-t border-[#e0ddd8] dark:border-[#38434f]">
+                  <div className="flex -space-x-0.5">
+                    {["👍", "❤️", "💡"].map((r) => (
+                      <span
+                        key={r}
+                        className="w-4 h-4 rounded-full bg-white dark:bg-[#1d2226] flex items-center justify-center text-[10px] ring-1 ring-[#e0ddd8]"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-[11px] text-[#00000066] dark:text-[#ffffff66] ml-1 flex-1">
+                    42
+                  </span>
+                  <span className="text-[11px] text-[#00000066] dark:text-[#ffffff66]">
+                    8 comments
+                  </span>
+                </div>
+
+                {/* Action bar */}
+                <div className="flex items-center border-t border-[#e0ddd8] dark:border-[#38434f]">
+                  {[
+                    ["👍", "Like"],
+                    ["💬", "Comment"],
+                    ["🔁", "Repost"],
+                    ["📤", "Send"],
+                  ].map(([icon, lbl]) => (
+                    <button
+                      key={lbl}
+                      className="flex-1 flex items-center justify-center gap-1 py-2 hover:bg-[#f3f2ef] dark:hover:bg-[#ffffff12] transition-colors"
+                    >
+                      <span
+                        className={
+                          device === "mobile" ? "text-base" : "text-sm"
+                        }
+                      >
+                        {icon}
+                      </span>
+                      {device !== "mobile" && (
+                        <span className="text-[11px] font-semibold text-[#00000099] dark:text-[#ffffff73]">
+                          {lbl}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Comments preview */}
+              {comments.filter((c) => c.text).length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  {comments
+                    .filter((c) => c.text)
+                    .slice(0, 2)
+                    .map((c) => (
+                      <div
+                        key={c.id}
+                        className="bg-white dark:bg-[#1d2226] rounded-lg border border-[#e0ddd8] dark:border-[#38434f] px-3 py-2 flex gap-2"
+                      >
+                        <div
+                          className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white"
+                          style={{
+                            backgroundColor: selAcc?.avatarColor || "#0077b5",
+                          }}
+                        >
+                          {selAcc?.name.slice(0, 1) || "?"}
                         </div>
-                      ))}
+                        <div>
+                          <p className="text-[10px] font-semibold text-[#000000e6] dark:text-[#ffffffd9]">
+                            {selAcc?.name?.split(" ")[0]}
+                          </p>
+                          <p className="text-[10px] text-[#000000cc] dark:text-[#ffffffcc] leading-snug line-clamp-2">
+                            {c.text}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
+              {/* Publish to LinkedIn */}
+              <div className="mt-3 space-y-2">
+                <button
+                  onClick={handlePublishToLinkedIn}
+                  disabled={publishing || !content.trim()}
+                  className="w-full py-2.5 rounded-xl bg-[#0077b5] hover:bg-[#006699] disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                >
+                  {publishing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-black text-sm">in</span> Publish to
+                      LinkedIn now
+                    </>
+                  )}
+                </button>
+                {publishResult === "success" && (
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                      Post published! Status → Published
+                    </span>
+                  </div>
+                )}
+                {publishResult === "error" && (
+                  <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
+                    <p className="text-xs text-red-500 font-medium">
+                      Publish failed. Check your LinkedIn connection.
+                    </p>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(content).catch(() => {});
+                        window.open("https://www.linkedin.com/feed/", "_blank");
+                      }}
+                      className="text-[10px] text-red-400 hover:underline mt-1"
+                    >
+                      Fallback: copy & open LinkedIn
+                    </button>
                   </div>
                 )}
               </div>
@@ -2057,6 +2539,11 @@ function EditorModal({
 export default function ContentStudioPage() {
   const { workspace, members, user } = useAuth();
   const { accounts: linkedinAccounts } = useLinkedInAccounts();
+  const {
+    connected: gcalConnected,
+    connect: connectGCal,
+    createEvent: createGCalEvent,
+  } = useGoogleCalendar();
 
   const [posts, setPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
@@ -2080,6 +2567,7 @@ export default function ContentStudioPage() {
   const [lastClickTime, setLastClickTime] = useState<Record<string, number>>(
     {},
   );
+  const [freeRows, setFreeRows] = useState<Record<string, string>[]>([]);
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [addEventDay, setAddEventDay] = useState<string | null>(null);
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
@@ -2116,10 +2604,28 @@ export default function ContentStudioPage() {
   const handleSaveEvent = async (ev: CalEvent) => {
     if (!workspace) return;
     BELL_SOUNDS[ev.bellSound]();
+
+    // Save to Firestore (shared workspace calendar)
     await addDoc(collection(db, "workspaces", workspace.id, "calendarEvents"), {
       ...ev,
       createdAt: serverTimestamp(),
     });
+
+    // Write to Google Calendar if user has connected it
+    if (gcalConnected) {
+      const startIso = `${ev.date}T${ev.time || "09:00"}:00`;
+      const endIso = `${ev.date}T${ev.endTime || "10:00"}:00`;
+      const assignedMember = members.find((m) => m.uid === ev.assignedToUid);
+
+      createGCalEvent({
+        title: ev.title,
+        description: ev.description || "",
+        startIso,
+        endIso,
+        guestEmail: assignedMember?.email,
+        colorId: GCAL_COLOR_MAP[ev.color] || "1",
+      }).catch((e) => console.warn("GCal write failed:", e));
+    }
   };
 
   const handleSave = async (
@@ -2302,9 +2808,6 @@ export default function ContentStudioPage() {
         </button>
       </div>
 
-      {/* Stats */}
-      <StatsStrip posts={posts} />
-
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
         <div className="flex bg-muted rounded-lg p-1">
@@ -2398,6 +2901,24 @@ export default function ContentStudioPage() {
               <div
                 key={col}
                 className="flex-1 min-w-[280px] flex flex-col gap-3"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={async (e) => {
+                  const postId = (
+                    e as unknown as DragEvent
+                  ).dataTransfer?.getData("postId");
+                  if (postId && workspace) {
+                    await updateDoc(
+                      doc(
+                        db,
+                        "workspaces",
+                        workspace.id,
+                        "contentPosts",
+                        postId,
+                      ),
+                      { status: col },
+                    );
+                  }
+                }}
               >
                 <div className="flex items-center justify-between px-1">
                   <div className="flex items-center gap-2">
@@ -2425,6 +2946,19 @@ export default function ContentStudioPage() {
                       key={post.id}
                       post={post}
                       onClick={() => setEditing(post)}
+                      onStatusChange={async (id, newStatus) => {
+                        if (workspace)
+                          await updateDoc(
+                            doc(
+                              db,
+                              "workspaces",
+                              workspace.id,
+                              "contentPosts",
+                              id,
+                            ),
+                            { status: newStatus },
+                          );
+                      }}
                       onArchive={async (id) => {
                         if (workspace)
                           await updateDoc(
@@ -2563,7 +3097,11 @@ export default function ContentStudioPage() {
                   {sheetCols.map((col) => (
                     <td
                       key={col.id}
-                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[160px]"
+                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
+                      onDoubleClick={() => {
+                        setEditingCell({ postId: post.id, col: col.id });
+                        setCellValue(post[col.id] ?? "");
+                      }}
                     >
                       {renderCell(post, col.id)}
                     </td>
@@ -2571,22 +3109,69 @@ export default function ContentStudioPage() {
                   <td className="px-3 py-2">
                     <button
                       onClick={() => setEditing(post)}
-                      className="text-[10px] text-muted-foreground hover:text-primary"
+                      className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1 rounded hover:bg-muted/50"
                     >
                       Edit
                     </button>
                   </td>
                 </tr>
               ))}
+              {/* Freeform rows — not tied to posts */}
+              {freeRows.map((row, rowIdx) => (
+                <tr
+                  key={`free-${rowIdx}`}
+                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5"
+                >
+                  {sheetCols.map((col) => (
+                    <td
+                      key={col.id}
+                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
+                    >
+                      <input
+                        value={row[col.id] || ""}
+                        onChange={(e) => {
+                          const newRows = [...freeRows];
+                          newRows[rowIdx] = {
+                            ...newRows[rowIdx],
+                            [col.id]: e.target.value,
+                          };
+                          setFreeRows(newRows);
+                        }}
+                        placeholder="—"
+                        className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 py-0.5"
+                      />
+                    </td>
+                  ))}
+                  <td className="px-3 py-2">
+                    <button
+                      onClick={() =>
+                        setFreeRows((p) => p.filter((_, i) => i !== rowIdx))
+                      }
+                      className="text-[10px] text-muted-foreground hover:text-destructive"
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              ))}
               <tr>
                 <td colSpan={sheetCols.length + 1} className="px-3 py-2">
-                  <button
-                    onClick={() => setEditing(null)}
-                    className="flex items-center gap-2 text-xs text-muted-foreground hover:text-primary"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    Add row
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setFreeRows((p) => [...p, {}])}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add blank row
+                    </button>
+                    <button
+                      onClick={() => setEditing(null)}
+                      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded hover:bg-muted/50"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add post row
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -2692,6 +3277,31 @@ export default function ContentStudioPage() {
           animate={{ opacity: 1 }}
           className="glass rounded-xl p-4 shadow-soft flex-1 overflow-auto"
         >
+          {/* Google Calendar connect banner */}
+          {!gcalConnected && (
+            <div className="mb-3 flex items-center gap-3 px-4 py-2.5 rounded-xl bg-blue-500/5 border border-blue-500/20">
+              <span className="text-lg">📅</span>
+              <p className="text-xs text-foreground flex-1">
+                Connect Google Calendar to sync events directly to your calendar
+                and invite teammates.
+              </p>
+              <button
+                onClick={connectGCal}
+                className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-blue-500 hover:bg-blue-600 text-white text-xs font-semibold transition-colors"
+              >
+                Connect
+              </button>
+            </div>
+          )}
+          {gcalConnected && (
+            <div className="mb-3 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
+              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                Google Calendar connected — events sync automatically
+              </p>
+            </div>
+          )}
+
           {/* Monthly */}
           {calMode === "monthly" && (
             <>
@@ -2856,10 +3466,12 @@ export default function ContentStudioPage() {
                           ))}
                           {dayEvents.map((ev) => {
                             const ec = EVENT_COLORS[ev.color];
+                            const isForMe = ev.assignedToUid === user?.uid;
                             return (
                               <div
                                 key={ev.id}
-                                className={`mb-1 rounded-lg px-1.5 py-1 border ${ec.bg} ${ec.border}`}
+                                className={`mb-1 rounded-lg px-1.5 py-1 border ${ec.bg} ${ec.border} ${isForMe ? "ring-1 ring-offset-1" : ""}`}
+                                style={isForMe ? { ringColor: ec.hex } : {}}
                               >
                                 <div className="flex items-center gap-1">
                                   <span
@@ -2867,11 +3479,16 @@ export default function ContentStudioPage() {
                                     style={{ backgroundColor: ec.hex }}
                                   />
                                   <span
-                                    className="text-[10px] font-semibold truncate"
+                                    className="text-[10px] font-semibold truncate flex-1"
                                     style={{ color: ec.hex }}
                                   >
                                     {ev.title}
                                   </span>
+                                  {isForMe && (
+                                    <span className="text-[8px] bg-white/60 dark:bg-black/30 rounded px-0.5 text-gray-500">
+                                      you
+                                    </span>
+                                  )}
                                 </div>
                                 <p className="text-[9px] text-muted-foreground mt-0.5">
                                   {ev.time}–{ev.endTime}
