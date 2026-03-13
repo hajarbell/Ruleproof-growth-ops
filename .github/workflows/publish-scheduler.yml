@@ -1,0 +1,31 @@
+# .github/workflows/publish-scheduler.yml
+# Place this file at: .github/workflows/publish-scheduler.yml in your repo
+#
+# This replaces Vercel cron (Pro only) with GitHub Actions (free).
+# Runs every 5 minutes, hits your cron-publish endpoint.
+#
+# Setup:
+# 1. Go to your GitHub repo → Settings → Secrets and variables → Actions
+# 2. Add these two secrets:
+#    - APP_URL        → https://ruleproof-os.vercel.app
+#    - CRON_SECRET    → (same value as your Vercel CRON_SECRET env var)
+
+name: LinkedIn Post Scheduler
+
+on:
+  schedule:
+    - cron: "*/5 * * * *" # every 5 minutes
+  workflow_dispatch: # also allows manual trigger from GitHub UI
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Trigger cron-publish endpoint
+        run: |
+          curl -s -X GET \
+            "${{ secrets.APP_URL }}/api/linkedin/cron-publish" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            -w "\nHTTP Status: %{http_code}\n"
