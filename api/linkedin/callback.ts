@@ -1,5 +1,6 @@
 // api/linkedin/callback.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const admin = require("firebase-admin");
 
@@ -7,25 +8,16 @@ let db: any = null;
 
 function initAdmin() {
   if (db) return db;
-  try {
-    if (!admin.apps.length) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-          privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(
-            /\\n/g,
-            "\n",
-          ),
-        }),
-      });
-    }
-    db = admin.firestore();
-    return db;
-  } catch (e) {
-    console.error("Firebase init failed:", e);
-    throw e;
+  if (!admin.apps.length) {
+    const serviceAccount = JSON.parse(
+      process.env.FIREBASE_SERVICE_ACCOUNT || "{}",
+    );
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
   }
+  db = admin.firestore();
+  return db;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -59,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
-      console.error("Token exchange failed:", tokenData);
+      console.error("Token exchange failed:", JSON.stringify(tokenData));
       return res.redirect(`${APP_URL}/linkedin?error=token_failed`);
     }
 
@@ -123,11 +115,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     return res.redirect(`${APP_URL}/linkedin?${params.toString()}`);
-  } catch (err) {
-    console.error("LinkedIn OAuth callback error:", err);
+  } catch (err: any) {
+    console.error("LinkedIn OAuth callback error:", err?.message || err);
     return res.status(500).json({
       error: "server_error",
-      message: err instanceof Error ? err.message : String(err),
+      message: err?.message || String(err),
     });
   }
 }
