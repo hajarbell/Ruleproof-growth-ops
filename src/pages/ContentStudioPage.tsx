@@ -1244,84 +1244,138 @@ function EditorModal({
       return;
     }
 
-    // Try in-memory token first
-    let token = (selAcc as any).accessToken as string | undefined;
+    let token: string | undefined;
+    const wsId = workspace?.id;
+
     console.log(
-      "[Publish] selAcc.id:",
+      "[Publish] wsId:",
+      wsId,
+      "selAcc.id:",
       selAcc.id,
-      "| in-memory token:",
-      !!token,
+      "linkedinId:",
+      selAcc.linkedinId,
     );
 
-    if (!token) {
-      // Direct Firestore read fallback — workspace may be null if not loaded yet
-      const wsId = workspace?.id;
-      if (wsId) {
+    // 1. linkedinTokens/{linkedinId} — this is where tokens actually live
+    if (wsId && selAcc.linkedinId) {
+      try {
         const snap = await getDoc(
-          doc(db, "workspaces", wsId, "linkedinAccounts", selAcc.id),
+          doc(db, "workspaces", wsId, "linkedinTokens", selAcc.linkedinId),
         );
-        token = snap.data()?.accessToken;
-        console.log(
-          "[Publish] Firestore fallback token:",
-          !!token,
-          "| fields:",
-          Object.keys(snap.data() || {}),
-        );
-        console.log(
-          "[Publish] raw accessToken value:",
-          JSON.stringify(snap.data()?.accessToken)?.slice(0, 30),
-        );
-      } else {
-        console.warn(
-          "[Publish] workspace is null — cannot do Firestore fallback",
-        );
+        const t = snap.data()?.accessToken;
+        if (t && t.length > 10) {
+          token = t;
+          console.log("[Publish] ✅ linkedinTokens/", selAcc.linkedinId);
+        } else
+          console.log(
+            "[Publish] linkedinTokens doc exists:",
+            snap.exists(),
+            "token length:",
+            t?.length ?? 0,
+          );
+      } catch (e) {
+        console.warn("[Publish] linkedinTokens read error:", e);
       }
     }
 
+    // 2. Scan ALL linkedinTokens docs — in case doc key differs from linkedinId
+    if (!token && wsId) {
+      try {
+        const allToks = await getDocs(
+          collection(db, "workspaces", wsId, "linkedinTokens"),
+        );
+        console.log(
+          "[Publish] Scanning",
+          allToks.size,
+          "linkedinTokens docs:",
+          allToks.docs.map((d) => d.id),
+        );
+        // Use any token if only 1 account, or match by linkedinId / email
+        allToks.forEach((d) => {
+          if (token) return;
+          const data = d.data();
+          const t = data.accessToken;
+          if (!t || t.length < 10) return;
+          const isMatch =
+            allToks.size === 1 ||
+            d.id === selAcc.linkedinId ||
+            data.linkedinId === selAcc.linkedinId ||
+            data.email === (selAcc as any).email;
+          if (isMatch) {
+            token = t;
+            console.log("[Publish] ✅ Scan match doc:", d.id);
+          }
+        });
+      } catch (e) {
+        console.warn("[Publish] scan error:", e);
+      }
+    }
+
+    // 3. linkedinAccounts doc accessToken field
+    if (!token && wsId) {
+      try {
+        const snap = await getDoc(
+          doc(db, "workspaces", wsId, "linkedinAccounts", selAcc.id),
+        );
+        const t = snap.data()?.accessToken;
+        if (t && t.length > 10) {
+          token = t;
+          console.log("[Publish] ✅ linkedinAccounts doc");
+        }
+      } catch (e) {
+        console.warn("[Publish] accounts doc read error:", e);
+      }
+    }
+
+    // 4. In-memory from hook snapshot
+    if (!token) {
+      const t = (selAcc as any).accessToken;
+      if (t && t.length > 10) {
+        token = t;
+        console.log("[Publish] ✅ in-memory");
+      }
+    }
+
+    console.log(
+      "[Publish] Final token found:",
+      !!token,
+      "length:",
+      token?.length ?? 0,
+    );
+
     if (!token) {
       alert(
-        "No LinkedIn access token found.\n\nPlease go to the LinkedIn page, disconnect this account, then reconnect it.",
+        "No LinkedIn access token found.\n\nPlease go to the LinkedIn page and reconnect this account.",
       );
       return;
     }
+
+    // Cache onto linkedinAccounts for faster future reads
+    if (wsId)
+      updateDoc(doc(db, "workspaces", wsId, "linkedinAccounts", selAcc.id), {
+        accessToken: token,
+      }).catch(() => {});
     setPublishing(true);
     setPublishResult(null);
     try {
       // Get the LinkedIn person URN (stored as linkedinId = profile.sub from userinfo endpoint)
       const authorUrn = `urn:li:person:${selAcc.linkedinId}`;
 
-      // UGC Posts API — requires Share on LinkedIn + Sign In with LinkedIn products
-      const body = {
-        author: authorUrn,
-        lifecycleState: "PUBLISHED",
-        specificContent: {
-          "com.linkedin.ugc.ShareContent": {
-            shareCommentary: { text: content },
-            shareMediaCategory: "NONE",
-          },
-        },
-        visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
-      };
-
-      const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+      // Call our Vercel proxy — browser can't call LinkedIn directly (CORS)
+      const res = await fetch("/api/linkedin/publish", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-          "X-Restli-Protocol-Version": "2.0.0",
-        },
-        body: JSON.stringify(body),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken: token, authorUrn, text: content }),
       });
 
       if (res.ok) {
         const data = await res.json();
         setPublishResult("success");
-        // Auto-update status to Published
         setStatus("Published");
-        console.log("Published post ID:", data.id);
+        console.log("[Publish] ✅ Posted! LinkedIn ID:", data.id);
       } else {
         const err = await res.json();
-        console.error("LinkedIn publish error:", err);
+        console.error("[Publish] LinkedIn error:", err);
         setPublishResult("error");
       }
     } catch (e) {
