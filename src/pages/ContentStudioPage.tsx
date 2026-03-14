@@ -143,6 +143,9 @@ interface Post {
   archived?: boolean;
   accountAvatarUrl?: string;
   uploadedFileUrl?: string;
+  mediaUrls?: string[];
+  mediaBase64?: string[]; // base64-encoded media stored directly in Firestore
+  mediaTypes?: string[]; // MIME types matching mediaBase64
   archivedAt?: string;
   createdAt?: any;
   [key: string]: any;
@@ -812,22 +815,22 @@ function PostCard({
 
         {/* FIX: Progress lines = lifecycle stages Draft→Scheduled→Published→Archived */}
         <div className="flex gap-1 mb-3">
-          {(["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]).map(
-            (stage, i) => (
-              <div
-                key={stage}
-                className="h-[3px] rounded-full flex-1 transition-all"
-                style={{
-                  backgroundColor:
-                    i < dots
-                      ? STATUS_HEX[stage]
-                      : isDark
-                        ? "rgba(255,255,255,0.08)"
-                        : "rgba(0,0,0,0.08)",
-                }}
-              />
-            ),
-          )}
+          {(
+            ["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]
+          ).map((stage, i) => (
+            <div
+              key={stage}
+              className="h-[3px] rounded-full flex-1 transition-all"
+              style={{
+                backgroundColor:
+                  i < dots
+                    ? STATUS_HEX[stage]
+                    : isDark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.08)",
+              }}
+            />
+          ))}
         </div>
 
         {/* Countdown for scheduled posts */}
@@ -1666,14 +1669,27 @@ function EditorModal({
         }),
       });
 
+      // FIX: parse response safely — Vercel can return HTML on 500 crashes
+      const rawText = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        data = { message: rawText.slice(0, 200) };
+      }
+
       if (res.ok) {
-        const data = await res.json();
         setPublishResult("success");
         setStatus("Published");
         console.log("[Publish] ✅ Posted! LinkedIn ID:", data.id);
       } else {
-        const err = await res.json();
-        console.error("[Publish] LinkedIn error:", err);
+        console.error("[Publish] LinkedIn error:", data);
+        console.error(
+          "[Publish] Status:",
+          res.status,
+          "Raw:",
+          rawText.slice(0, 300),
+        );
         setPublishResult("error");
       }
     } catch (e) {
@@ -1684,8 +1700,21 @@ function EditorModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!selAcc) return;
+
+    // Store base64 directly in Firestore — no Storage needed
+    const mediaBase64: string[] = [];
+    const mediaTypes: string[] = [];
+
+    for (const file of uploadedFiles) {
+      if (!file.base64) continue;
+      if (!file.type.startsWith("image/") && !file.type.startsWith("video/"))
+        continue;
+      mediaBase64.push(file.base64);
+      mediaTypes.push(file.type);
+    }
+
     const saved: Post = {
       id: post?.id ?? Date.now().toString(),
       linkedinAccountId: selAcc.id,
@@ -1695,13 +1724,14 @@ function EditorModal({
       accountBio: selAcc.headline,
       accountFollowers: selAcc.followers,
       accountAvatarUrl: selAcc.avatarUrl || "",
-      linkedinId: selAcc.linkedinId || "", // needed by cron for token lookup
+      linkedinId: selAcc.linkedinId || "",
       ...(uploadedFiles.length > 0
         ? {
             uploadedFileUrl: uploadedFiles[0].previewUrl,
             uploadedFileCount: uploadedFiles.length,
           }
         : {}),
+      ...(mediaBase64.length > 0 ? { mediaBase64, mediaTypes } : {}),
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
       assignedAvatar: memberInitials(selMember ?? {}),
@@ -3439,10 +3469,9 @@ export default function ContentStudioPage() {
     if (newStatus === "Archived") {
       await archivePost(id);
     } else {
-      await updateDoc(
-        doc(db, "workspaces", workspace.id, "contentPosts", id),
-        { status: newStatus },
-      );
+      await updateDoc(doc(db, "workspaces", workspace.id, "contentPosts", id), {
+        status: newStatus,
+      });
     }
   };
 
@@ -3454,10 +3483,11 @@ export default function ContentStudioPage() {
     if (!archSnap.exists()) return;
     const data: any = { ...archSnap.data() };
     delete data.archivedAt;
-    await addDoc(
-      collection(db, "workspaces", workspace.id, "contentPosts"),
-      { ...data, status: "Draft", createdAt: serverTimestamp() },
-    );
+    await addDoc(collection(db, "workspaces", workspace.id, "contentPosts"), {
+      ...data,
+      status: "Draft",
+      createdAt: serverTimestamp(),
+    });
     await deleteDoc(archRef);
   };
 
@@ -3475,9 +3505,7 @@ export default function ContentStudioPage() {
 
   const filtered = posts.filter(
     (p) =>
-      (filterStatus === "All"
-        ? true
-        : p.status === filterStatus) &&
+      (filterStatus === "All" ? true : p.status === filterStatus) &&
       (filterAcc === "All" ||
         p.account === filterAcc ||
         p.linkedinAccountId === filterAcc),
@@ -3753,9 +3781,7 @@ export default function ContentStudioPage() {
           className="flex gap-4 flex-1 overflow-x-auto pb-2"
         >
           {/* FIX: Archived removed — ArchiveColumn handles it from its own collection */}
-          {(
-            ["Draft", "Scheduled", "Published"] as PostStatus[]
-          ).map((col) => {
+          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
             const isDragTarget = dragOverCol === col;
             return (
