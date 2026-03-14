@@ -3,10 +3,10 @@ import * as admin from "firebase-admin";
 
 // ── Firebase init ─────────────────────────────────────────────────────────────
 if (!admin.apps.length) {
+  const raw = process.env.FIREBASE_SERVICE_ACCOUNT!;
+  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
   admin.initializeApp({
-    credential: admin.credential.cert(
-      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!),
-    ),
+    credential: admin.credential.cert(serviceAccount),
   });
 }
 const db = admin.firestore();
