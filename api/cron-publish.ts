@@ -1,21 +1,22 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import * as admin from "firebase-admin";
 
-// ── Firebase init (runs once per cold start) ──────────────────────────────────
-if (!getApps().length) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
-  initializeApp({ credential: cert(serviceAccount) });
+// ── Firebase init ─────────────────────────────────────────────────────────────
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(
+      JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!),
+    ),
+  });
 }
-const db = getFirestore();
+const db = admin.firestore();
 
-// ── Token resolver — tries multiple storage locations ─────────────────────────
+// ── Token resolver ────────────────────────────────────────────────────────────
 async function resolveToken(
   wsId: string,
   linkedinId: string | undefined,
   linkedinAccountId: string | undefined,
 ): Promise<string | null> {
-  // 1. Try linkedinTokens/{linkedinId}
   if (linkedinId) {
     try {
       const snap = await db
@@ -29,7 +30,6 @@ async function resolveToken(
     } catch {}
   }
 
-  // 2. Try linkedinAccounts/{linkedinAccountId}
   if (linkedinAccountId) {
     try {
       const snap = await db
@@ -43,7 +43,6 @@ async function resolveToken(
     } catch {}
   }
 
-  // 3. Fallback: scan all tokens in the workspace and return the first valid one
   try {
     const all = await db
       .collection("workspaces")
@@ -59,7 +58,7 @@ async function resolveToken(
   return null;
 }
 
-// ── Upload one media file to LinkedIn, returns assetUrn or null ───────────────
+// ── Upload one media file to LinkedIn ─────────────────────────────────────────
 async function uploadMedia(
   accessToken: string,
   authorUrn: string,
@@ -114,7 +113,6 @@ async function uploadMedia(
       return null;
     }
 
-    // Strip data: prefix if present
     const cleanBase64 = base64.includes(",") ? base64.split(",")[1] : base64;
     const binary = Buffer.from(cleanBase64, "base64");
 
@@ -138,7 +136,7 @@ async function uploadMedia(
   }
 }
 
-// ── Publish to LinkedIn (text or media) ───────────────────────────────────────
+// ── Publish to LinkedIn ───────────────────────────────────────────────────────
 async function publishToLinkedIn(
   accessToken: string,
   authorUrn: string,
@@ -152,7 +150,6 @@ async function publishToLinkedIn(
     "X-Restli-Protocol-Version": "2.0.0",
   };
 
-  // ── Text only ──────────────────────────────────────────────────────────────
   if (!mediaBase64 || mediaBase64.length === 0) {
     const r = await fetch("https://api.linkedin.com/v2/ugcPosts", {
       method: "POST",
@@ -173,7 +170,6 @@ async function publishToLinkedIn(
     return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
   }
 
-  // ── With media ─────────────────────────────────────────────────────────────
   const isVideo = (mediaTypes?.[0] ?? "").startsWith("video/");
   const assetUrns: string[] = [];
 
@@ -181,10 +177,7 @@ async function publishToLinkedIn(
     const mime = mediaTypes?.[i] ?? "image/jpeg";
     const urn = await uploadMedia(accessToken, authorUrn, mediaBase64[i], mime);
     if (!urn) {
-      // Fall back to text-only rather than failing the whole post
-      console.warn(
-        `[Cron] Media ${i} upload failed — falling back to text-only`,
-      );
+      console.warn(`[Cron] Media ${i} failed — falling back to text-only`);
       return publishToLinkedIn(accessToken, authorUrn, text);
     }
     assetUrns.push(urn);
@@ -222,7 +215,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  // Auth: accept secret from header OR query string (for Vercel cron)
   const secret =
     (req.headers["x-cron-secret"] as string) ||
     (req.headers["authorization"] as string)?.replace("Bearer ", "") ||
@@ -260,9 +252,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!scheduledDate) continue;
 
-        // ── Time check — compare UTC ─────────────────────────────────────────
-        // scheduledDate is "YYYY-MM-DD", scheduledTime is "HH:MM"
-        // We treat them as UTC. Adjust if your users schedule in local time.
         const scheduledDT = new Date(
           `${scheduledDate}T${scheduledTime}:00.000Z`,
         );
