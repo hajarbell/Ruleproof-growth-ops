@@ -3,19 +3,20 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 // ─── LinkedIn media upload + post ─────────────────────────────────────────────
 // Supports: text-only, single image, multiple images, video
 //
-// Request body:
-// {
-//   accessToken: string
-//   authorUrn: string         e.g. "urn:li:person:ABC123"
-//   text: string
-//   media?: Array<{
-//     base64: string          raw base64 (no data: prefix)
-//     mimeType: string        e.g. "image/jpeg", "image/png", "video/mp4"
-//     filename: string
-//   }>
-// }
+// IMPORTANT: this file lives in /api/linkedin/publish.ts
+// The api/ folder must have its OWN package.json with:
+//   { "type": "commonjs" }         ← NOT "module"
+// And its own tsconfig.json with:
+//   "module": "CommonJS"
+// This is separate from your frontend package.json which can be ESM.
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // ── CORS preflight — required for browser → Vercel function calls ────────────
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") return res.status(200).end();
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -28,10 +29,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .json({ error: "Missing required fields: accessToken, authorUrn, text" });
   }
 
-  const headers = {
+  // Validate token looks real before hitting LinkedIn
+  if (accessToken.length < 20) {
+    return res
+      .status(400)
+      .json({ error: "Access token appears invalid (too short)" });
+  }
+
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
     "X-Restli-Protocol-Version": "2.0.0",
+    "LinkedIn-Version": "202304", // ← pin to a stable API version
   };
 
   try {
@@ -56,17 +65,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
 
       const data = await liRes.json();
-      if (!liRes.ok) return res.status(liRes.status).json({ error: data });
+      if (!liRes.ok) {
+        console.error(
+          "[Publish] LinkedIn text post error:",
+          JSON.stringify(data),
+        );
+        return res.status(liRes.status).json({ error: data });
+      }
       return res.status(200).json({ success: true, id: data.id });
     }
 
-    // ── Media post (images or video) ────────────────────────────────────────
+    // ── Media post ──────────────────────────────────────────────────────────
     const isVideo = media[0].mimeType.startsWith("video/");
-
-    // Step 1: Register each upload with LinkedIn
     const assetUrns: string[] = [];
 
     for (const file of media) {
+      // ── Step 1: Register upload ───────────────────────────────────────────
       const registerRes = await fetch(
         "https://api.linkedin.com/v2/assets?action=registerUpload",
         {
@@ -94,7 +108,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const registerData = await registerRes.json();
 
       if (!registerRes.ok) {
-        console.error("[Publish] Register upload failed:", registerData);
+        console.error(
+          "[Publish] Register upload failed:",
+          JSON.stringify(registerData),
+        );
         return res
           .status(500)
           .json({ error: "Failed to register upload", detail: registerData });
@@ -107,13 +124,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const assetUrn = registerData.value?.asset;
 
       if (!uploadUrl || !assetUrn) {
+        console.error(
+          "[Publish] Missing uploadUrl or assetUrn:",
+          JSON.stringify(registerData),
+        );
         return res
           .status(500)
           .json({ error: "Missing uploadUrl or assetUrn from LinkedIn" });
       }
 
-      // Step 2: Upload the binary
-      const binary = Buffer.from(file.base64, "base64");
+      // ── Step 2: Upload binary ─────────────────────────────────────────────
+      // file.base64 is raw base64 (no data: prefix) — strip it defensively
+      const cleanBase64 = file.base64.includes(",")
+        ? file.base64.split(",")[1]
+        : file.base64;
+
+      const binary = Buffer.from(cleanBase64, "base64");
+
       const uploadRes = await fetch(uploadUrl, {
         method: "PUT",
         headers: {
@@ -126,45 +153,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!uploadRes.ok) {
         const uploadErr = await uploadRes.text();
         console.error("[Publish] Binary upload failed:", uploadErr);
-        return res.status(500).json({ error: "Failed to upload media binary" });
+        return res
+          .status(500)
+          .json({ error: "Failed to upload media binary", detail: uploadErr });
       }
 
       assetUrns.push(assetUrn);
     }
 
-    // Step 3: Create the post with uploaded media
-    const mediaCategory = isVideo ? "VIDEO" : "IMAGE";
+    // ── Step 3: Create post with media ────────────────────────────────────────
     const mediaObjects = assetUrns.map((urn) => ({
       status: "READY",
       media: urn,
       ...(isVideo ? {} : { title: { text: "" }, description: { text: "" } }),
     }));
 
-    const postBody = {
-      author: authorUrn,
-      lifecycleState: "PUBLISHED",
-      specificContent: {
-        "com.linkedin.ugc.ShareContent": {
-          shareCommentary: { text },
-          shareMediaCategory: mediaCategory,
-          media: mediaObjects,
-        },
-      },
-      visibility: {
-        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-      },
-    };
-
     const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
       method: "POST",
       headers,
-      body: JSON.stringify(postBody),
+      body: JSON.stringify({
+        author: authorUrn,
+        lifecycleState: "PUBLISHED",
+        specificContent: {
+          "com.linkedin.ugc.ShareContent": {
+            shareCommentary: { text },
+            shareMediaCategory: isVideo ? "VIDEO" : "IMAGE",
+            media: mediaObjects,
+          },
+        },
+        visibility: {
+          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+        },
+      }),
     });
 
     const data = await liRes.json();
 
     if (!liRes.ok) {
-      console.error("[Publish] Post with media failed:", data);
+      console.error("[Publish] Post with media failed:", JSON.stringify(data));
       return res.status(liRes.status).json({ error: data });
     }
 

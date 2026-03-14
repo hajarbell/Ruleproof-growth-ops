@@ -6,10 +6,9 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": false,
-    "outDir": "./dist",
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["./**/*.ts", "../cron-publish.ts"],
+  "include": ["./**/*.ts"],
   "exclude": ["node_modules"]
 }

@@ -2,57 +2,65 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
+// ── Firebase init (runs once per cold start) ──────────────────────────────────
 if (!getApps().length) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
   initializeApp({ credential: cert(serviceAccount) });
 }
-
 const db = getFirestore();
 
+// ── Token resolver — tries multiple storage locations ─────────────────────────
 async function resolveToken(
   wsId: string,
   linkedinId: string | undefined,
   linkedinAccountId: string | undefined,
 ): Promise<string | null> {
+  // 1. Try linkedinTokens/{linkedinId}
   if (linkedinId) {
-    const snap = await db
+    try {
+      const snap = await db
+        .collection("workspaces")
+        .doc(wsId)
+        .collection("linkedinTokens")
+        .doc(linkedinId)
+        .get();
+      const t = snap.data()?.accessToken;
+      if (t && t.length > 20) return t;
+    } catch {}
+  }
+
+  // 2. Try linkedinAccounts/{linkedinAccountId}
+  if (linkedinAccountId) {
+    try {
+      const snap = await db
+        .collection("workspaces")
+        .doc(wsId)
+        .collection("linkedinAccounts")
+        .doc(linkedinAccountId)
+        .get();
+      const t = snap.data()?.accessToken;
+      if (t && t.length > 20) return t;
+    } catch {}
+  }
+
+  // 3. Fallback: scan all tokens in the workspace and return the first valid one
+  try {
+    const all = await db
       .collection("workspaces")
       .doc(wsId)
       .collection("linkedinTokens")
-      .doc(linkedinId)
       .get();
-    const t = snap.data()?.accessToken;
-    if (t && t.length > 10) return t;
-  }
-
-  if (linkedinAccountId) {
-    const snap = await db
-      .collection("workspaces")
-      .doc(wsId)
-      .collection("linkedinAccounts")
-      .doc(linkedinAccountId)
-      .get();
-    const t = snap.data()?.accessToken;
-    if (t && t.length > 10) return t;
-  }
-
-  const all = await db
-    .collection("workspaces")
-    .doc(wsId)
-    .collection("linkedinTokens")
-    .get();
-  for (const doc of all.docs) {
-    const t = doc.data()?.accessToken;
-    if (t && t.length > 10) {
-      if (all.size === 1 || doc.id === linkedinId) return t;
+    for (const d of all.docs) {
+      const t = d.data()?.accessToken;
+      if (t && t.length > 20) return t;
     }
-  }
+  } catch {}
 
   return null;
 }
 
-// ── Upload one base64 media file to LinkedIn, returns assetUrn or null ────────
-async function uploadMediaToLinkedIn(
+// ── Upload one media file to LinkedIn, returns assetUrn or null ───────────────
+async function uploadMedia(
   accessToken: string,
   authorUrn: string,
   base64: string,
@@ -65,70 +73,72 @@ async function uploadMediaToLinkedIn(
     "X-Restli-Protocol-Version": "2.0.0",
   };
 
-  // Step 1: Register upload
-  const registerRes = await fetch(
-    "https://api.linkedin.com/v2/assets?action=registerUpload",
-    {
-      method: "POST",
-      headers: liHeaders,
-      body: JSON.stringify({
-        registerUploadRequest: {
-          recipes: [
-            isVideo
-              ? "urn:li:digitalmediaRecipe:feedshare-video"
-              : "urn:li:digitalmediaRecipe:feedshare-image",
-          ],
-          owner: authorUrn,
-          serviceRelationships: [
-            {
-              relationshipType: "OWNER",
-              identifier: "urn:li:userGeneratedContent",
-            },
-          ],
-        },
-      }),
-    },
-  );
+  try {
+    const registerRes = await fetch(
+      "https://api.linkedin.com/v2/assets?action=registerUpload",
+      {
+        method: "POST",
+        headers: liHeaders,
+        body: JSON.stringify({
+          registerUploadRequest: {
+            recipes: [
+              isVideo
+                ? "urn:li:digitalmediaRecipe:feedshare-video"
+                : "urn:li:digitalmediaRecipe:feedshare-image",
+            ],
+            owner: authorUrn,
+            serviceRelationships: [
+              {
+                relationshipType: "OWNER",
+                identifier: "urn:li:userGeneratedContent",
+              },
+            ],
+          },
+        }),
+      },
+    );
 
-  const registerData = await registerRes.json();
-  if (!registerRes.ok) {
-    console.error("[Cron] Register upload failed:", registerData);
+    const reg = await registerRes.json();
+    if (!registerRes.ok) {
+      console.error("[Cron] Register failed:", reg);
+      return null;
+    }
+
+    const uploadUrl =
+      reg.value?.uploadMechanism?.[
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+      ]?.uploadUrl;
+    const assetUrn = reg.value?.asset;
+    if (!uploadUrl || !assetUrn) {
+      console.error("[Cron] No uploadUrl/assetUrn");
+      return null;
+    }
+
+    // Strip data: prefix if present
+    const cleanBase64 = base64.includes(",") ? base64.split(",")[1] : base64;
+    const binary = Buffer.from(cleanBase64, "base64");
+
+    const upRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": mimeType,
+      },
+      body: binary,
+    });
+
+    if (!upRes.ok) {
+      console.error("[Cron] Binary upload failed:", await upRes.text());
+      return null;
+    }
+    return assetUrn;
+  } catch (e) {
+    console.error("[Cron] uploadMedia error:", e);
     return null;
   }
-
-  const uploadUrl =
-    registerData.value?.uploadMechanism?.[
-      "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
-    ]?.uploadUrl;
-  const assetUrn = registerData.value?.asset;
-
-  if (!uploadUrl || !assetUrn) {
-    console.error("[Cron] Missing uploadUrl or assetUrn from LinkedIn");
-    return null;
-  }
-
-  // Step 2: Decode base64 directly — no Storage needed
-  const binary = Buffer.from(base64, "base64");
-
-  // Step 3: Upload binary to LinkedIn
-  const uploadRes = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": mimeType,
-    },
-    body: binary,
-  });
-
-  if (!uploadRes.ok) {
-    console.error("[Cron] Binary upload failed:", await uploadRes.text());
-    return null;
-  }
-
-  return assetUrn;
 }
 
-// ── Publish to LinkedIn — text-only or with media ─────────────────────────────
+// ── Publish to LinkedIn (text or media) ───────────────────────────────────────
 async function publishToLinkedIn(
   accessToken: string,
   authorUrn: string,
@@ -142,9 +152,9 @@ async function publishToLinkedIn(
     "X-Restli-Protocol-Version": "2.0.0",
   };
 
-  // Text-only
+  // ── Text only ──────────────────────────────────────────────────────────────
   if (!mediaBase64 || mediaBase64.length === 0) {
-    const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    const r = await fetch("https://api.linkedin.com/v2/ugcPosts", {
       method: "POST",
       headers: liHeaders,
       body: JSON.stringify({
@@ -156,44 +166,31 @@ async function publishToLinkedIn(
             shareMediaCategory: "NONE",
           },
         },
-        visibility: {
-          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-        },
+        visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
       }),
     });
-    const data = await res.json();
-    return res.ok ? { ok: true, id: data.id } : { ok: false, error: data };
+    const d = await r.json();
+    return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
   }
 
-  // Upload each media file to LinkedIn
+  // ── With media ─────────────────────────────────────────────────────────────
   const isVideo = (mediaTypes?.[0] ?? "").startsWith("video/");
   const assetUrns: string[] = [];
 
   for (let i = 0; i < mediaBase64.length; i++) {
-    const mimeType = mediaTypes?.[i] ?? "image/jpeg";
-    const urn = await uploadMediaToLinkedIn(
-      accessToken,
-      authorUrn,
-      mediaBase64[i],
-      mimeType,
-    );
+    const mime = mediaTypes?.[i] ?? "image/jpeg";
+    const urn = await uploadMedia(accessToken, authorUrn, mediaBase64[i], mime);
     if (!urn) {
+      // Fall back to text-only rather than failing the whole post
       console.warn(
-        `[Cron] Media upload ${i} failed, falling back to text-only`,
+        `[Cron] Media ${i} upload failed — falling back to text-only`,
       );
       return publishToLinkedIn(accessToken, authorUrn, text);
     }
     assetUrns.push(urn);
   }
 
-  const mediaCategory = isVideo ? "VIDEO" : "IMAGE";
-  const mediaObjects = assetUrns.map((urn) => ({
-    status: "READY",
-    media: urn,
-    ...(isVideo ? {} : { title: { text: "" }, description: { text: "" } }),
-  }));
-
-  const res = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+  const r = await fetch("https://api.linkedin.com/v2/ugcPosts", {
     method: "POST",
     headers: liHeaders,
     body: JSON.stringify({
@@ -202,27 +199,34 @@ async function publishToLinkedIn(
       specificContent: {
         "com.linkedin.ugc.ShareContent": {
           shareCommentary: { text },
-          shareMediaCategory: mediaCategory,
-          media: mediaObjects,
+          shareMediaCategory: isVideo ? "VIDEO" : "IMAGE",
+          media: assetUrns.map((urn) => ({
+            status: "READY",
+            media: urn,
+            ...(isVideo
+              ? {}
+              : { title: { text: "" }, description: { text: "" } }),
+          })),
         },
       },
-      visibility: {
-        "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-      },
+      visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
     }),
   });
-
-  const data = await res.json();
-  return res.ok ? { ok: true, id: data.id } : { ok: false, error: data };
+  const d = await r.json();
+  return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
 }
 
+// ── Cron handler ──────────────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Auth: accept secret from header OR query string (for Vercel cron)
   const secret =
-    (req.headers["x-cron-secret"] as string) || (req.query.secret as string);
+    (req.headers["x-cron-secret"] as string) ||
+    (req.headers["authorization"] as string)?.replace("Bearer ", "") ||
+    (req.query.secret as string);
 
   if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -237,9 +241,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }[] = [];
 
   try {
-    const workspaces = await db.collection("workspaces").listDocuments();
+    const workspaceRefs = await db.collection("workspaces").listDocuments();
 
-    for (const wsRef of workspaces) {
+    for (const wsRef of workspaceRefs) {
       const wsId = wsRef.id;
 
       const postsSnap = await db
@@ -256,6 +260,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!scheduledDate) continue;
 
+        // ── Time check — compare UTC ─────────────────────────────────────────
+        // scheduledDate is "YYYY-MM-DD", scheduledTime is "HH:MM"
+        // We treat them as UTC. Adjust if your users schedule in local time.
         const scheduledDT = new Date(
           `${scheduledDate}T${scheduledTime}:00.000Z`,
         );
@@ -322,7 +329,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             console.log(
               `[Cron] ✅ Published ${postDoc.id}`,
               mediaBase64?.length
-                ? `with ${mediaBase64.length} media file(s)`
+                ? `with ${mediaBase64.length} media`
                 : "text-only",
             );
           } else {
