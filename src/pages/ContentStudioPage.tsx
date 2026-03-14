@@ -103,6 +103,15 @@ interface SheetColumn {
   label: string;
 }
 
+// FIX: base64 added so we can send media to LinkedIn API
+interface UploadedFile {
+  name: string;
+  type: string;
+  previewUrl: string;
+  size: number;
+  base64?: string;
+}
+
 interface Post {
   id: string;
   linkedinAccountId: string;
@@ -134,6 +143,8 @@ interface Post {
   archived?: boolean;
   accountAvatarUrl?: string;
   uploadedFileUrl?: string;
+  archivedAt?: string;
+  createdAt?: any;
   [key: string]: any;
 }
 
@@ -562,6 +573,14 @@ const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
     Archived: { light: "#f4f4f5", dark: "#1c1c20" },
   };
 
+// FIX: progress lines use lifecycle stage (Draft=1 lit, Scheduled=2, Published=3, Archived=4)
+const STAGE_DOTS: Record<PostStatus, number> = {
+  Draft: 1,
+  Scheduled: 2,
+  Published: 3,
+  Archived: 4,
+};
+
 function PostCard({
   post,
   onClick,
@@ -631,7 +650,8 @@ function PostCard({
   const cardBg = post.cardColor || (isDark ? bgColors.dark : bgColors.light);
   const preview =
     post.content.slice(0, 120) + (post.content.length > 120 ? "…" : "");
-  const dots = Math.min(4, Math.ceil((post.content.length / 600) * 4));
+  // FIX: lifecycle stage not content length
+  const dots = STAGE_DOTS[post.status];
 
   return (
     <motion.div
@@ -790,23 +810,24 @@ function PostCard({
           </p>
         )}
 
-        {/* Progress dots */}
+        {/* FIX: Progress lines = lifecycle stages Draft→Scheduled→Published→Archived */}
         <div className="flex gap-1 mb-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="h-[3px] rounded-full flex-1 transition-all"
-              style={{
-                backgroundColor:
-                  i <= dots
-                    ? STATUS_HEX[post.status]
-                    : isDark
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.08)",
-                opacity: i <= dots ? 0.8 : 1,
-              }}
-            />
-          ))}
+          {(["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]).map(
+            (stage, i) => (
+              <div
+                key={stage}
+                className="h-[3px] rounded-full flex-1 transition-all"
+                style={{
+                  backgroundColor:
+                    i < dots
+                      ? STATUS_HEX[stage]
+                      : isDark
+                        ? "rgba(255,255,255,0.08)"
+                        : "rgba(0,0,0,0.08)",
+                }}
+              />
+            ),
+          )}
         </div>
 
         {/* Countdown for scheduled posts */}
@@ -881,6 +902,118 @@ function PostCard({
   );
 }
 
+// ─── Archive Column ────────────────────────────────────────────────────────────
+// FIX: Archived posts live in archivedPosts collection, displayed stacked by month
+function ArchiveColumn({
+  posts,
+  onRestore,
+}: {
+  posts: Post[];
+  onRestore: (id: string) => void;
+}) {
+  const [isDark, setIsDark] = useState(false);
+  useEffect(() => {
+    setIsDark(document.documentElement.classList.contains("dark"));
+    const obs = new MutationObserver(() =>
+      setIsDark(document.documentElement.classList.contains("dark")),
+    );
+    obs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => obs.disconnect();
+  }, []);
+
+  // Group by month of archivedAt
+  const grouped: Record<string, Post[]> = {};
+  posts.forEach((p) => {
+    const raw = p.archivedAt || p.scheduledDate || "";
+    const d = new Date(raw);
+    const key =
+      !raw || isNaN(d.getTime())
+        ? "Unknown"
+        : d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(p);
+  });
+
+  return (
+    <div className="flex-1 min-w-[280px] flex flex-col gap-3">
+      <div className="flex items-center gap-2 px-1">
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ backgroundColor: STATUS_HEX.Archived }}
+        />
+        <span className="text-sm font-semibold text-foreground">Archived</span>
+        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+          {posts.length}
+        </span>
+      </div>
+      <div className="space-y-5 flex-1 overflow-y-auto">
+        {posts.length === 0 && (
+          <div className="h-24 rounded-xl border-2 border-dashed border-zinc-300/40 dark:border-zinc-600/30 flex items-center justify-center">
+            <div className="text-center">
+              <Archive className="w-4 h-4 text-muted-foreground/40 mx-auto mb-1" />
+              <span className="text-xs text-muted-foreground/60">
+                No archived posts
+              </span>
+            </div>
+          </div>
+        )}
+        {Object.entries(grouped).map(([month, monthPosts]) => (
+          <div key={month}>
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2 px-1">
+              {month}
+            </p>
+            <div
+              className="relative"
+              style={{ minHeight: Math.min(monthPosts.length, 5) * 12 + 72 }}
+            >
+              {monthPosts.map((post, i) => (
+                <div
+                  key={post.id}
+                  className="absolute w-full rounded-2xl border p-3 cursor-pointer hover:z-10 hover:shadow-md transition-all group/arch"
+                  style={{
+                    top: i * 12,
+                    zIndex: i,
+                    backgroundColor: isDark ? "#1c2030" : "#f4f4f5",
+                    borderColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.08)",
+                  }}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Restore "${post.theme || post.content.slice(0, 40)}" to Draft?`,
+                      )
+                    )
+                      onRestore(post.id);
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[12px] font-semibold text-muted-foreground line-clamp-1 flex-1">
+                      {post.theme || post.content.slice(0, 40) || "Untitled"}
+                    </p>
+                    <span className="text-[9px] text-muted-foreground/50 opacity-0 group-hover/arch:opacity-100 transition-opacity whitespace-nowrap">
+                      ↩ restore
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5 line-clamp-1">
+                    {post.account}
+                  </p>
+                </div>
+              ))}
+              <div
+                style={{ height: Math.min(monthPosts.length, 5) * 12 + 72 }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Google Calendar helpers ──────────────────────────────────────────────────
 function buildGCalUrl(post: Post, memberEmail?: string): string {
   const assigneeName =
@@ -895,8 +1028,15 @@ function buildGCalUrl(post: Post, memberEmail?: string): string {
   const endMin = (startMin + 30) % 60;
   const endHour = parseInt(time.slice(0, 2)) + (startMin + 30 >= 60 ? 1 : 0);
   const dtEnd = `${date}T${String(endHour).padStart(2, "0")}${String(endMin).padStart(2, "0")}00`;
+  // FIX: include comments in GCal event description
+  const commentLines = (post.comments || [])
+    .filter((c) => c.text.trim())
+    .map((c, i) => `${i + 1}. ${c.text}`)
+    .join("\n");
   const details = encodeURIComponent(
-    `POST CONTENT:\n${post.content}\n\nAssigned to: ${post.assignedTo}`,
+    `📝 POST CONTENT:\n${post.content}` +
+      (commentLines ? `\n\n💬 COMMENTS TO POST AFTER:\n${commentLines}` : "") +
+      `\n\n👤 Assigned to: ${post.assignedTo}`,
   );
   const guests = memberEmail ? `&add=${encodeURIComponent(memberEmail)}` : "";
   return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&dates=${dtStart}/${dtEnd}${guests}`;
@@ -1294,15 +1434,15 @@ function EditorModal({
     post?.assignmentComment ?? "",
   );
   const [emojiTab, setEmojiTab] = useState<"emoji" | "chars">("emoji");
-  const [uploadedFiles, setUploadedFiles] = useState<
-    Array<{ name: string; type: string; previewUrl: string; size: number }>
-  >([]);
+  // FIX: UploadedFile now includes base64 for LinkedIn media upload
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   // Keep uploadedFile as alias to first file for backward compat
   const uploadedFile = uploadedFiles[0] ?? null;
-  const setUploadedFile = (
-    f: { name: string; type: string; previewUrl: string; size: number } | null,
-  ) => setUploadedFiles(f ? [f] : []);
+  const setUploadedFile = (f: UploadedFile | null) =>
+    setUploadedFiles(f ? [f] : []);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // FIX: GCal opt-in checkbox — user must tick to open Calendar on save
+  const [openGCal, setOpenGCal] = useState(false);
 
   const emojiPanelRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1499,14 +1639,31 @@ function EditorModal({
     setPublishing(true);
     setPublishResult(null);
     try {
-      // Get the LinkedIn person URN (stored as linkedinId = profile.sub from userinfo endpoint)
       const authorUrn = `urn:li:person:${selAcc.linkedinId}`;
+
+      // FIX: build media payload from files that have base64 data
+      const mediaPayload = uploadedFiles
+        .filter(
+          (f) =>
+            f.base64 &&
+            (f.type.startsWith("image/") || f.type.startsWith("video/")),
+        )
+        .map((f) => ({
+          base64: f.base64!,
+          mimeType: f.type,
+          filename: f.name,
+        }));
 
       // Call our Vercel proxy — browser can't call LinkedIn directly (CORS)
       const res = await fetch("/api/linkedin/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: token, authorUrn, text: content }),
+        body: JSON.stringify({
+          accessToken: token,
+          authorUrn,
+          text: content,
+          ...(mediaPayload.length > 0 ? { media: mediaPayload } : {}),
+        }),
       });
 
       if (res.ok) {
@@ -1564,7 +1721,8 @@ function EditorModal({
       cardColor,
     };
     onSave(saved, notifyMember, assignComment);
-    if (status === "Scheduled" && date) {
+    // FIX: only open GCal if checkbox is checked
+    if (openGCal && status === "Scheduled" && date) {
       window.open(buildGCalUrl(saved, selMember?.email), "_blank");
     }
     onClose();
@@ -2082,6 +2240,18 @@ function EditorModal({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* FIX: GCal is opt-in — only shown when status=Scheduled and date is set */}
+            {status === "Scheduled" && date && (
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer select-none px-2">
+                <input
+                  type="checkbox"
+                  checked={openGCal}
+                  onChange={(e) => setOpenGCal(e.target.checked)}
+                  className="rounded accent-primary"
+                />
+                Open Google Calendar
+              </label>
+            )}
             <button
               onClick={handleSave}
               className="gradient-primary text-white px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5"
@@ -2294,9 +2464,10 @@ function EditorModal({
                 onChange={(e) => setTime(e.target.value)}
                 className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
               />
+              {/* FIX: hint updated to match new checkbox UX */}
               {status === "Scheduled" && date && (
                 <p className="text-[9px] text-emerald-400 mt-1">
-                  📅 Will open Google Calendar on save
+                  📅 Check "Open Google Calendar" above to sync
                 </p>
               )}
             </div>
@@ -2461,23 +2632,33 @@ function EditorModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*,.pdf,video/*"
+                  accept="image/*,video/*"
                   multiple
                   className="hidden"
                   onChange={(e) => {
                     const files = Array.from(e.target.files || []);
                     if (!files.length) return;
-                    const loaded: typeof uploadedFiles = [];
+                    // FIX: read base64 so we can upload to LinkedIn API
                     files.forEach((file) => {
                       const url = URL.createObjectURL(file);
-                      loaded.push({
-                        name: file.name,
-                        type: file.type,
-                        previewUrl: url,
-                        size: file.size,
-                      });
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const result = ev.target?.result as string;
+                        // Strip "data:image/jpeg;base64," prefix — keep raw base64
+                        const base64 = result.split(",")[1];
+                        setUploadedFiles((prev) => [
+                          ...prev,
+                          {
+                            name: file.name,
+                            type: file.type,
+                            previewUrl: url,
+                            size: file.size,
+                            base64,
+                          },
+                        ]);
+                      };
+                      reader.readAsDataURL(file);
                     });
-                    setUploadedFiles((prev) => [...prev, ...loaded]);
                     e.target.value = "";
                   }}
                 />
@@ -2524,7 +2705,8 @@ function EditorModal({
                     </div>
                     <p className="text-[10px] text-muted-foreground">
                       {uploadedFiles.length} file
-                      {uploadedFiles.length > 1 ? "s" : ""} selected
+                      {uploadedFiles.length > 1 ? "s" : ""} selected · will
+                      upload to LinkedIn
                     </p>
                   </div>
                 ) : (
@@ -3041,6 +3223,9 @@ function EditorModal({
                     <>
                       <span className="font-black text-sm">in</span> Publish to
                       LinkedIn now
+                      {uploadedFiles.length > 0
+                        ? ` + ${uploadedFiles.length} media`
+                        : ""}
                     </>
                   )}
                 </button>
@@ -3083,6 +3268,7 @@ export default function ContentStudioPage() {
   const { accounts: linkedinAccounts } = useLinkedInAccounts();
 
   const [posts, setPosts] = useState<Post[]>([]);
+  const [archivedPosts, setArchivedPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [view, setView] = useState<ViewMode>("cards");
   const [editing, setEditing] = useState<Post | null | undefined>(undefined);
@@ -3123,8 +3309,23 @@ export default function ContentStudioPage() {
     }
     const q = query(postsColRef, orderBy("createdAt", "desc"));
     return onSnapshot(q, (snap) => {
-      setPosts(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Post));
+      // FIX: id LAST so Firestore doc ID always wins over stale id inside doc
+      setPosts(snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Post));
       setLoadingPosts(false);
+    });
+  }, [workspace?.id]);
+
+  // FIX: Archived posts live in their own collection
+  useEffect(() => {
+    if (!workspace?.id) return;
+    const q = query(
+      collection(db, "workspaces", workspace.id, "archivedPosts"),
+      orderBy("archivedAt", "desc"),
+    );
+    return onSnapshot(q, (snap) => {
+      setArchivedPosts(
+        snap.docs.map((d) => ({ ...d.data(), id: d.id }) as Post),
+      );
     });
   }, [workspace?.id]);
 
@@ -3213,6 +3414,53 @@ export default function ContentStudioPage() {
     }
   };
 
+  // FIX: archivePost moves doc to archivedPosts + deletes from contentPosts
+  const archivePost = async (id: string) => {
+    if (!workspace) return;
+    const postRef = doc(db, "workspaces", workspace.id, "contentPosts", id);
+    const postSnap = await getDoc(postRef);
+    if (!postSnap.exists()) return;
+    const postData = {
+      ...postSnap.data(),
+      id,
+      status: "Archived",
+      archivedAt: new Date().toISOString(),
+    };
+    await addDoc(
+      collection(db, "workspaces", workspace.id, "archivedPosts"),
+      postData,
+    );
+    await deleteDoc(postRef);
+  };
+
+  // FIX: status changes to Archived go through archivePost
+  const changePostStatus = async (id: string, newStatus: PostStatus) => {
+    if (!workspace) return;
+    if (newStatus === "Archived") {
+      await archivePost(id);
+    } else {
+      await updateDoc(
+        doc(db, "workspaces", workspace.id, "contentPosts", id),
+        { status: newStatus },
+      );
+    }
+  };
+
+  // FIX: restore puts doc back into contentPosts as Draft
+  const restorePost = async (id: string) => {
+    if (!workspace) return;
+    const archRef = doc(db, "workspaces", workspace.id, "archivedPosts", id);
+    const archSnap = await getDoc(archRef);
+    if (!archSnap.exists()) return;
+    const data: any = { ...archSnap.data() };
+    delete data.archivedAt;
+    await addDoc(
+      collection(db, "workspaces", workspace.id, "contentPosts"),
+      { ...data, status: "Draft", createdAt: serverTimestamp() },
+    );
+    await deleteDoc(archRef);
+  };
+
   const dropOnDay = (dayKey: string) => {
     if (!dragging || !workspace) return;
     const post = posts.find((p) => p.id === dragging);
@@ -3228,7 +3476,7 @@ export default function ContentStudioPage() {
   const filtered = posts.filter(
     (p) =>
       (filterStatus === "All"
-        ? p.status !== "Archived"
+        ? true
         : p.status === filterStatus) &&
       (filterAcc === "All" ||
         p.account === filterAcc ||
@@ -3240,7 +3488,72 @@ export default function ContentStudioPage() {
       editingCell?.postId === post.id && editingCell?.col === col;
 
     // Inline input — shown for ANY column when double-clicked
-    if (isEditing)
+    if (isEditing) {
+      // FIX: smart dropdowns for status/funnel, date picker for scheduledDate
+      if (col === "status")
+        return (
+          <select
+            autoFocus
+            value={cellValue}
+            onChange={(e) => setCellValue(e.target.value)}
+            onBlur={() => {
+              if (workspace)
+                updateDoc(
+                  doc(db, "workspaces", workspace.id, "contentPosts", post.id),
+                  { [col]: cellValue },
+                );
+              setEditingCell(null);
+            }}
+            className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none text-foreground"
+          >
+            {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        );
+      if (col === "funnel")
+        return (
+          <select
+            autoFocus
+            value={cellValue}
+            onChange={(e) => setCellValue(e.target.value)}
+            onBlur={() => {
+              if (workspace)
+                updateDoc(
+                  doc(db, "workspaces", workspace.id, "contentPosts", post.id),
+                  { [col]: cellValue },
+                );
+              setEditingCell(null);
+            }}
+            className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none text-foreground"
+          >
+            {FUNNEL_TAGS.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        );
+      if (col === "scheduledDate")
+        return (
+          <input
+            autoFocus
+            type="date"
+            value={cellValue}
+            onChange={(e) => setCellValue(e.target.value)}
+            onBlur={() => {
+              if (workspace)
+                updateDoc(
+                  doc(db, "workspaces", workspace.id, "contentPosts", post.id),
+                  { [col]: cellValue },
+                );
+              setEditingCell(null);
+            }}
+            className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none text-foreground"
+          />
+        );
       return (
         <input
           autoFocus
@@ -3268,6 +3581,7 @@ export default function ContentStudioPage() {
           className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none focus:ring-1 focus:ring-primary text-foreground min-w-[80px]"
         />
       );
+    }
 
     // Read-only display per column type
     if (col === "account")
@@ -3326,10 +3640,6 @@ export default function ContentStudioPage() {
     );
   };
 
-  // Suppress unused import warnings from the original file
-  void getDocs;
-  void deleteDoc;
-
   return (
     <div className="space-y-4 h-full flex flex-col">
       {/* Header */}
@@ -3350,6 +3660,8 @@ export default function ContentStudioPage() {
           New Post
         </button>
       </div>
+
+      <StatsStrip posts={posts} />
 
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
@@ -3440,8 +3752,9 @@ export default function ContentStudioPage() {
           animate={{ opacity: 1 }}
           className="flex gap-4 flex-1 overflow-x-auto pb-2"
         >
+          {/* FIX: Archived removed — ArchiveColumn handles it from its own collection */}
           {(
-            ["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]
+            ["Draft", "Scheduled", "Published"] as PostStatus[]
           ).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
             const isDragTarget = dragOverCol === col;
@@ -3457,12 +3770,11 @@ export default function ContentStudioPage() {
                   if (!e.currentTarget.contains(e.relatedTarget as Node))
                     setDragOverCol(null);
                 }}
+                // FIX: use draggingPostId state — React clears dataTransfer before onDrop fires
                 onDrop={async (e) => {
                   e.preventDefault();
                   setDragOverCol(null);
-                  const postId = (
-                    e as unknown as DragEvent
-                  ).dataTransfer?.getData("postId");
+                  const postId = draggingPostId;
                   if (postId && workspace) {
                     await updateDoc(
                       doc(
@@ -3475,6 +3787,7 @@ export default function ContentStudioPage() {
                       { status: col },
                     );
                   }
+                  setDraggingPostId(null);
                 }}
                 style={{
                   outline: isDragTarget
@@ -3506,10 +3819,9 @@ export default function ContentStudioPage() {
                   </button>
                 </div>
                 <div className="space-y-3 flex-1">
-                  {/* Ghost placeholder at top when dragging into this column */}
                   {isDragTarget &&
                     draggingPostId &&
-                    filtered.find((p) => p.id === draggingPostId)?.status !==
+                    posts.find((p) => p.id === draggingPostId)?.status !==
                       col && (
                       <div
                         className="rounded-2xl border-2 border-dashed h-24 animate-pulse"
@@ -3529,52 +3841,23 @@ export default function ContentStudioPage() {
                         setDraggingPostId(null);
                         setDragOverCol(null);
                       }}
-                      onStatusChange={async (id, newStatus) => {
-                        if (workspace)
-                          await updateDoc(
-                            doc(
-                              db,
-                              "workspaces",
-                              workspace.id,
-                              "contentPosts",
-                              id,
-                            ),
-                            { status: newStatus },
-                          );
-                      }}
-                      onArchive={async (id) => {
-                        if (workspace)
-                          await updateDoc(
-                            doc(
-                              db,
-                              "workspaces",
-                              workspace.id,
-                              "contentPosts",
-                              id,
-                            ),
-                            { status: "Archived" },
-                          );
-                      }}
+                      onStatusChange={changePostStatus}
+                      onArchive={archivePost}
                     />
                   ))}
                   {colPosts.length === 0 && (
-                    <div
-                      className={`h-24 rounded-xl border-2 border-dashed flex items-center justify-center ${col === "Archived" ? "border-zinc-300/40 dark:border-zinc-600/30" : "border-border/50"}`}
-                    >
-                      <div className="text-center">
-                        {col === "Archived" ? (
-                          <Archive className="w-4 h-4 text-muted-foreground/40 mx-auto mb-1" />
-                        ) : null}
-                        <span className="text-xs text-muted-foreground/60">
-                          No {col.toLowerCase()} posts
-                        </span>
-                      </div>
+                    <div className="h-24 rounded-xl border-2 border-dashed border-border/50 flex items-center justify-center">
+                      <span className="text-xs text-muted-foreground/60">
+                        No {col.toLowerCase()} posts
+                      </span>
                     </div>
                   )}
                 </div>
               </div>
             );
           })}
+          {/* FIX: Archive column from archivedPosts collection, stacked by month */}
+          <ArchiveColumn posts={archivedPosts} onRestore={restorePost} />
         </motion.div>
       )}
 
@@ -3690,20 +3973,13 @@ export default function ContentStudioPage() {
                       className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
                       onDoubleClick={() => {
                         setEditingCell({ postId: post.id, col: col.id });
-                        setCellValue(post[col.id] ?? "");
+                        setCellValue(String(post[col.id] ?? ""));
                       }}
                     >
                       {renderCell(post, col.id)}
                     </td>
                   ))}
-                  <td className="px-3 py-2">
-                    <button
-                      onClick={() => setEditing(post)}
-                      className="text-[10px] text-muted-foreground hover:text-primary px-2 py-1 rounded hover:bg-muted/50"
-                    >
-                      Edit
-                    </button>
-                  </td>
+                  <td className="px-3 py-2" />
                 </tr>
               ))}
               {/* Freeform rows — not tied to posts */}
@@ -4424,6 +4700,26 @@ export default function ContentStudioPage() {
             linkedinAccounts={linkedinAccounts}
             members={members}
           />
+        )}
+      </AnimatePresence>
+
+      {/* FIX: Edit calendar event modal */}
+      <AnimatePresence>
+        {editingEvent && (
+          <div
+            className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-background/80 backdrop-blur-sm"
+            onClick={() => setEditingEvent(null)}
+          >
+            <div onClick={(e) => e.stopPropagation()} className="relative">
+              <AddEventPanel
+                date={editingEvent.date}
+                onClose={() => setEditingEvent(null)}
+                onSave={handleSaveEvent}
+                members={members}
+                existingEvent={editingEvent}
+              />
+            </div>
+          </div>
         )}
       </AnimatePresence>
     </div>
