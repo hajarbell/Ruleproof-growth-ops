@@ -1744,6 +1744,9 @@ function EditorModal({
           }
         : {}),
       ...(mediaBase64.length > 0 ? { mediaBase64, mediaTypes } : {}),
+      // FIX: store UTC timestamp so cron compares correctly regardless of timezone
+      scheduledTimestamp:
+        date && time ? new Date(`${date}T${time}:00`).toISOString() : "",
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
       assignedAvatar: memberInitials(selMember ?? {}),

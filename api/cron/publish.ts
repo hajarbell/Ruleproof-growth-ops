@@ -249,9 +249,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (!scheduledDate) continue;
 
-        const scheduledDT = new Date(
-          `${scheduledDate}T${scheduledTime}:00.000Z`,
-        );
+        // FIX: use stored UTC timestamp if available, fallback for old posts
+        const scheduledDT = post.scheduledTimestamp
+          ? new Date(post.scheduledTimestamp as string)
+          : new Date(`${scheduledDate}T${scheduledTime}:00`);
+
         if (scheduledDT > now) continue;
 
         const linkedinId = post.linkedinId as string | undefined;
