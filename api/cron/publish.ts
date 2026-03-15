@@ -1,17 +1,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import * as admin from "firebase-admin";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-// ── Firebase init ─────────────────────────────────────────────────────────────
-if (!admin.apps.length) {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT!;
-  const serviceAccount = typeof raw === "string" ? JSON.parse(raw) : raw;
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
+// FIX: modular imports work in ESM — "import * as admin" is legacy CommonJS pattern
+if (!getApps().length) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
+  initializeApp({ credential: cert(serviceAccount) });
 }
-const db = admin.firestore();
 
-// ── Token resolver ────────────────────────────────────────────────────────────
+const db = getFirestore();
+
 async function resolveToken(
   wsId: string,
   linkedinId: string | undefined,
@@ -58,7 +56,6 @@ async function resolveToken(
   return null;
 }
 
-// ── Upload one media file to LinkedIn ─────────────────────────────────────────
 async function uploadMedia(
   accessToken: string,
   authorUrn: string,
@@ -108,6 +105,7 @@ async function uploadMedia(
         "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
       ]?.uploadUrl;
     const assetUrn = reg.value?.asset;
+
     if (!uploadUrl || !assetUrn) {
       console.error("[Cron] No uploadUrl/assetUrn");
       return null;
@@ -129,6 +127,7 @@ async function uploadMedia(
       console.error("[Cron] Binary upload failed:", await upRes.text());
       return null;
     }
+
     return assetUrn;
   } catch (e) {
     console.error("[Cron] uploadMedia error:", e);
@@ -136,7 +135,6 @@ async function uploadMedia(
   }
 }
 
-// ── Publish to LinkedIn ───────────────────────────────────────────────────────
 async function publishToLinkedIn(
   accessToken: string,
   authorUrn: string,
@@ -209,7 +207,6 @@ async function publishToLinkedIn(
   return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
 }
 
-// ── Cron handler ──────────────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
