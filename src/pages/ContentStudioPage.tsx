@@ -651,9 +651,19 @@ function PostCard({
 
   const bgColors = CARD_STATUS_BG_HEX[post.status];
   const cardBg = post.cardColor || (isDark ? bgColors.dark : bgColors.light);
+  // FIX: detect if card background is light so we can force dark text
+  const isLightCard = (() => {
+    const bg = cardBg.replace("#", "");
+    if (bg.length !== 6) return !isDark;
+    const r = parseInt(bg.slice(0, 2), 16);
+    const g = parseInt(bg.slice(2, 4), 16);
+    const b = parseInt(bg.slice(4, 6), 16);
+    return (r * 299 + g * 587 + b * 114) / 1000 > 128;
+  })();
+  const textColor = isLightCard ? "#0f172a" : "#f8fafc";
+  const subTextColor = isLightCard ? "#475569" : "#94a3b8";
   const preview =
     post.content.slice(0, 120) + (post.content.length > 120 ? "…" : "");
-  // FIX: lifecycle stage not content length
   const dots = STAGE_DOTS[post.status];
 
   return (
@@ -700,7 +710,7 @@ function PostCard({
         <div className="flex items-start justify-between gap-2 mb-2">
           <h4
             className="text-[14px] font-bold leading-snug flex-1 line-clamp-2"
-            style={{ color: isDark ? "#f8fafc" : "#0f172a" }}
+            style={{ color: textColor }}
           >
             {post.theme || post.content.slice(0, 50) || "Untitled"}
           </h4>
@@ -717,87 +727,109 @@ function PostCard({
             </button>
             {showMenu && (
               <div
-                className="absolute right-0 top-7 z-50 rounded-xl border shadow-xl overflow-hidden w-44"
+                className="absolute right-0 top-8 z-50 rounded-2xl border shadow-2xl overflow-hidden w-48"
                 style={{
-                  backgroundColor: isDark ? "#1e293b" : "#ffffff",
+                  backgroundColor: isDark ? "#1a2235" : "#ffffff",
                   borderColor: isDark
                     ? "rgba(255,255,255,0.08)"
-                    : "rgba(0,0,0,0.08)",
+                    : "rgba(0,0,0,0.06)",
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div
-                  className="px-3 py-1.5 border-b"
-                  style={{
-                    borderColor: isDark
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(0,0,0,0.06)",
-                  }}
-                >
+                {/* Move to section */}
+                <div className="px-3 pt-3 pb-1.5">
                   <p
-                    className="text-[10px] font-semibold uppercase tracking-wider"
-                    style={{ color: isDark ? "#64748b" : "#94a3b8" }}
+                    className="text-[9px] font-bold uppercase tracking-widest mb-1.5"
+                    style={{ color: isDark ? "#475569" : "#94a3b8" }}
                   >
                     Move to
                   </p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {(
+                      [
+                        "Draft",
+                        "Scheduled",
+                        "Published",
+                        "Archived",
+                      ] as PostStatus[]
+                    )
+                      .filter((s) => s !== post.status)
+                      .map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            onStatusChange?.(post.id, s);
+                            setShowMenu(false);
+                          }}
+                          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:opacity-80"
+                          style={{
+                            backgroundColor: STATUS_HEX[s] + "18",
+                            color: STATUS_HEX[s],
+                          }}
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: STATUS_HEX[s] }}
+                          />
+                          {s}
+                        </button>
+                      ))}
+                  </div>
                 </div>
-                {(
-                  [
-                    "Draft",
-                    "Scheduled",
-                    "Published",
-                    "Archived",
-                  ] as PostStatus[]
-                )
-                  .filter((s) => s !== post.status)
-                  .map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => {
-                        onStatusChange?.(post.id, s);
-                        setShowMenu(false);
-                      }}
-                      className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 transition-colors"
-                      style={{ color: isDark ? "#e2e8f0" : "#334155" }}
-                    >
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: STATUS_HEX[s] }}
-                      />
-                      {s}
-                    </button>
-                  ))}
+                {/* Divider */}
                 <div
-                  className="border-t"
+                  className="mx-3 my-1.5 h-px"
                   style={{
-                    borderColor: isDark
+                    backgroundColor: isDark
                       ? "rgba(255,255,255,0.06)"
                       : "rgba(0,0,0,0.06)",
                   }}
                 />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMenu(false);
-                    onClick();
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  style={{ color: isDark ? "#e2e8f0" : "#334155" }}
-                >
-                  ✏️ Edit
-                </button>
-                {onArchive && (
+                {/* Actions */}
+                <div className="px-2 pb-2 space-y-0.5">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onArchive(post.id);
+                      setShowMenu(false);
+                      onClick();
+                    }}
+                    className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
+                    style={{ color: isDark ? "#e2e8f0" : "#334155" }}
+                  >
+                    <span className="text-base">✏️</span> Edit post
+                  </button>
+                  {onArchive && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onArchive(post.id);
+                        setShowMenu(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 transition-colors font-medium text-amber-600 dark:text-amber-400"
+                    >
+                      <span className="text-base">🗄️</span> Archive
+                    </button>
+                  )}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (
+                        window.confirm(
+                          "Permanently delete this post? This cannot be undone.",
+                        )
+                      ) {
+                        onStatusChange?.(post.id, "Archived");
+                        // Signal delete vs archive via a different approach
+                        if ((window as any).__deletePost)
+                          (window as any).__deletePost(post.id);
+                      }
                       setShowMenu(false);
                     }}
-                    className="w-full text-left px-3 py-2 text-xs hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors text-red-500"
+                    className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors font-medium text-red-500"
                   >
-                    🗄️ Archive
+                    <span className="text-base">🗑️</span> Delete forever
                   </button>
-                )}
+                </div>
               </div>
             )}
           </div>
@@ -807,27 +839,25 @@ function PostCard({
         {preview && (
           <p
             className="text-[12px] leading-relaxed mb-3 line-clamp-2"
-            style={{ color: isDark ? "#cbd5e1" : "#334155" }}
+            style={{ color: subTextColor }}
           >
             {preview}
           </p>
         )}
 
-        {/* FIX: Progress lines = lifecycle stages Draft→Scheduled→Published→Archived */}
+        {/* Progress lines — all same status color when filled */}
         <div className="flex gap-1 mb-3">
-          {(
-            ["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]
-          ).map((stage, i) => (
+          {[0, 1, 2, 3].map((i) => (
             <div
-              key={stage}
+              key={i}
               className="h-[3px] rounded-full flex-1 transition-all"
               style={{
                 backgroundColor:
                   i < dots
-                    ? STATUS_HEX[stage]
-                    : isDark
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.08)",
+                    ? STATUS_HEX[post.status]
+                    : isLightCard
+                      ? "rgba(0,0,0,0.10)"
+                      : "rgba(255,255,255,0.10)",
               }}
             />
           ))}
@@ -836,10 +866,12 @@ function PostCard({
         {/* Countdown for scheduled posts */}
         {post.status === "Scheduled" && countdown && (
           <div className="flex items-center gap-1 mb-2">
-            <Clock
-              className="w-3 h-3 flex-shrink-0"
+            <span
+              className="material-symbols-outlined text-[14px] flex-shrink-0"
               style={{ color: STATUS_HEX["Scheduled"] }}
-            />
+            >
+              alarm
+            </span>
             <span
               className="text-[10px] font-semibold"
               style={{ color: STATUS_HEX["Scheduled"] }}
@@ -874,14 +906,11 @@ function PostCard({
           <div className="flex-1 min-w-0">
             <p
               className="text-[12px] font-semibold truncate"
-              style={{ color: isDark ? "#e2e8f0" : "#1e293b" }}
+              style={{ color: textColor }}
             >
               {post.account}
             </p>
-            <p
-              className="text-[11px]"
-              style={{ color: isDark ? "#94a3b8" : "#475569" }}
-            >
+            <p className="text-[11px]" style={{ color: subTextColor }}>
               {post.scheduledDate
                 ? post.scheduledDate
                     .replace(/(\d{4})-(\d{2})-(\d{2})/, "$3.$2.$1")
@@ -890,13 +919,21 @@ function PostCard({
               {post.scheduledTime && ` · ${post.scheduledTime}`}
             </p>
           </div>
-          {/* Assigned member avatar */}
+          {/* Assigned member avatar — uses their real profile color */}
           {post.assignedAvatar && (
             <div
-              className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white shadow-sm"
-              style={{ background: "linear-gradient(135deg,#6366f1,#8b5cf6)" }}
+              className="w-6 h-6 rounded-full flex-shrink-0 flex items-center justify-center text-[9px] font-bold text-white shadow-sm overflow-hidden"
+              style={{ backgroundColor: post.assignedColor || "#6366f1" }}
             >
-              {post.assignedAvatar}
+              {post.assignedAvatarUrl ? (
+                <img
+                  src={post.assignedAvatarUrl}
+                  className="w-full h-full object-cover"
+                  alt=""
+                />
+              ) : (
+                post.assignedAvatar
+              )}
             </div>
           )}
         </div>
@@ -975,14 +1012,14 @@ function ArchiveColumn({
               {monthPosts.map((post, i) => (
                 <div
                   key={post.id}
-                  className="absolute w-full rounded-2xl border p-3 cursor-pointer hover:z-10 hover:shadow-md transition-all group/arch"
+                  className="absolute w-full rounded-2xl border-2 p-3 cursor-pointer hover:z-10 hover:shadow-md transition-all group/arch"
                   style={{
                     top: i * 12,
                     zIndex: i,
-                    backgroundColor: isDark ? "#1c2030" : "#f4f4f5",
+                    backgroundColor: isDark ? "#1c2030" : "#f1f5f9",
                     borderColor: isDark
-                      ? "rgba(255,255,255,0.06)"
-                      : "rgba(0,0,0,0.08)",
+                      ? "rgba(255,255,255,0.10)"
+                      : "rgba(0,0,0,0.14)",
                   }}
                   onClick={() => {
                     if (
@@ -1273,7 +1310,10 @@ function AddEventPanel({
         </div>
         <div>
           <p className="text-[10px] text-muted-foreground mb-1.5 font-medium uppercase tracking-wider">
-            🔔 Reminders
+            <span className="material-symbols-outlined text-[13px] align-middle mr-1">
+              notifications
+            </span>
+            Reminders
           </p>
           <div className="flex gap-1.5">
             {[
@@ -1750,6 +1790,8 @@ function EditorModal({
       assignedToUid: selMember?.uid ?? "",
       assignedTo: selMember?.displayName || selMember?.email || "—",
       assignedAvatar: memberInitials(selMember ?? {}),
+      assignedAvatarUrl: (selMember as any)?.photoURL || "",
+      assignedColor: (selMember as any)?.color || "#6366f1",
       assignmentComment: assignComment,
       theme,
       content,
@@ -2682,7 +2724,7 @@ function EditorModal({
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*,video/*"
+                  accept="image/*,video/*,application/pdf"
                   multiple
                   className="hidden"
                   onChange={(e) => {
@@ -3356,6 +3398,12 @@ export default function ContentStudioPage() {
   const [filterStatus, setFilterStatus] = useState<PostStatus | "All">("All");
   const [filterAcc, setFilterAcc] = useState("All");
   const [calMode, setCalMode] = useState<CalendarMode>("monthly");
+  // FIX: dynamic calendar date — no more hardcoded March 2026
+  const [calCurrentDate, setCalCurrentDate] = useState(() => {
+    const d = new Date();
+    d.setDate(1);
+    return d;
+  });
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<PostStatus | null>(null);
@@ -3542,13 +3590,24 @@ export default function ContentStudioPage() {
     await deleteDoc(archRef);
   };
 
-  const dropOnDay = (dayKey: string) => {
+  // FIX: permanent delete — removes from contentPosts entirely
+  const deletePost = async (id: string) => {
+    if (!workspace) return;
+    await deleteDoc(doc(db, "workspaces", workspace.id, "contentPosts", id));
+  };
+
+  // Expose deletePost globally so PostCard menu can call it
+  React.useEffect(() => {
+    (window as any).__deletePost = deletePost;
+    return () => {
+      delete (window as any).__deletePost;
+    };
+  }, [workspace?.id]);
+
+  const dropOnDay = (dateStr: string) => {
     if (!dragging || !workspace) return;
-    const post = posts.find((p) => p.id === dragging);
-    if (!post) return;
-    const newDate = `2026-03-${dayKey.padStart(2, "0")}`;
     updateDoc(doc(db, "workspaces", workspace.id, "contentPosts", dragging), {
-      scheduledDate: newDate,
+      scheduledDate: dateStr,
     });
     setDragging(null);
     setDragOver(null);
@@ -3699,13 +3758,25 @@ export default function ContentStudioPage() {
           {post.status}
         </span>
       );
-    if (col === "assignedTo")
+    if (col === "assignedTo") {
+      const member = members.find((m) => m.uid === post.assignedToUid);
+      const memberColor =
+        (member as any)?.color || (member as any)?.photoColor || "#6366f1";
       return (
         <div className="flex items-center gap-1.5">
-          <Av i={post.assignedAvatar} c="#6366f1" />
+          {(member as any)?.photoURL ? (
+            <img
+              src={(member as any).photoURL}
+              className="w-6 h-6 rounded-full object-cover"
+              alt=""
+            />
+          ) : (
+            <Av i={post.assignedAvatar} c={memberColor} />
+          )}
           <span className="text-xs">{post.assignedTo || "—"}</span>
         </div>
       );
+    }
     if (col === "comments")
       return (
         <span className="text-xs text-muted-foreground">
@@ -4133,36 +4204,52 @@ export default function ContentStudioPage() {
               initial={{ opacity: 0, scale: 0.97 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.97 }}
-              className="w-full max-w-md bg-card rounded-2xl border border-border shadow-2xl overflow-hidden"
+              className="w-full max-w-lg bg-card rounded-2xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
               onClick={(e) => e.stopPropagation()}
             >
               <div
-                className="h-1 w-full"
+                className="h-1 w-full flex-shrink-0"
                 style={{ backgroundColor: STATUS_HEX[sheetPreview.status] }}
               />
-              <div className="p-5">
+              <div className="p-5 overflow-y-auto flex-1">
+                {/* LinkedIn account + status */}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white"
-                      style={{ backgroundColor: sheetPreview.accountColor }}
-                    >
-                      {sheetPreview.accountAvatar}
-                    </div>
+                    {sheetPreview.accountAvatarUrl ? (
+                      <img
+                        src={sheetPreview.accountAvatarUrl}
+                        className="w-10 h-10 rounded-full object-cover"
+                        alt=""
+                      />
+                    ) : (
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white"
+                        style={{ backgroundColor: sheetPreview.accountColor }}
+                      >
+                        {sheetPreview.accountAvatar}
+                      </div>
+                    )}
                     <div>
                       <p className="font-semibold text-foreground">
                         {sheetPreview.account}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {sheetPreview.scheduledDate}
-                        {sheetPreview.scheduledTime &&
-                          ` · ${sheetPreview.scheduledTime}`}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${STATUS_COLORS[sheetPreview.status]}`}
+                        >
+                          {sheetPreview.status}
+                        </span>
+                        <p className="text-xs text-muted-foreground">
+                          {sheetPreview.scheduledDate}
+                          {sheetPreview.scheduledTime &&
+                            ` · ${sheetPreview.scheduledTime}`}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   <button
                     onClick={() => setSheetPreview(null)}
-                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground flex-shrink-0"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -4173,6 +4260,29 @@ export default function ContentStudioPage() {
                 <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line mb-4">
                   {sheetPreview.content}
                 </p>
+                {/* Media preview */}
+                {sheetPreview.mediaBase64?.length > 0 && (
+                  <div className="mb-4 rounded-xl overflow-hidden border border-border">
+                    {(sheetPreview.mediaTypes?.[0] ?? "").startsWith(
+                      "video/",
+                    ) ? (
+                      <div className="flex items-center justify-center h-32 bg-muted/30">
+                        <span className="text-4xl">🎬</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={`data:${sheetPreview.mediaTypes?.[0] ?? "image/jpeg"};base64,${sheetPreview.mediaBase64[0]}`}
+                        className="w-full object-cover max-h-64"
+                        alt=""
+                      />
+                    )}
+                    {sheetPreview.mediaBase64.length > 1 && (
+                      <div className="px-3 py-1.5 bg-muted/20 text-[11px] text-muted-foreground">
+                        +{sheetPreview.mediaBase64.length - 1} more file(s)
+                      </div>
+                    )}
+                  </div>
+                )}
                 {sheetPreview.comments.filter((c) => c.text).length > 0 && (
                   <div className="border-t border-border pt-3 space-y-2">
                     <p className="text-[10px] font-semibold text-muted-foreground uppercase">
@@ -4190,23 +4300,23 @@ export default function ContentStudioPage() {
                       ))}
                   </div>
                 )}
-                <div className="flex gap-2 mt-4">
-                  <button
-                    onClick={() => {
-                      setEditing(sheetPreview);
-                      setSheetPreview(null);
-                    }}
-                    className="flex-1 py-2 rounded-xl gradient-primary text-white text-sm font-semibold"
-                  >
-                    Edit post
-                  </button>
-                  <button
-                    onClick={() => setSheetPreview(null)}
-                    className="px-4 py-2 rounded-xl bg-muted text-muted-foreground text-sm"
-                  >
-                    Close
-                  </button>
-                </div>
+              </div>
+              <div className="flex gap-2 p-4 pt-0 flex-shrink-0">
+                <button
+                  onClick={() => {
+                    setEditing(sheetPreview);
+                    setSheetPreview(null);
+                  }}
+                  className="flex-1 py-2 rounded-xl gradient-primary text-white text-sm font-semibold"
+                >
+                  Edit post
+                </button>
+                <button
+                  onClick={() => setSheetPreview(null)}
+                  className="px-4 py-2 rounded-xl bg-muted text-muted-foreground text-sm"
+                >
+                  Close
+                </button>
               </div>
             </motion.div>
           </div>
@@ -4218,555 +4328,555 @@ export default function ContentStudioPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="glass rounded-xl p-4 shadow-soft flex-1 overflow-auto"
+          className="glass rounded-xl shadow-soft flex-1 overflow-hidden flex flex-col"
         >
-          {/* Monthly */}
-          {calMode === "monthly" && (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-foreground">March 2026</h3>
-                <p className="text-xs text-muted-foreground">
-                  Drag to reschedule · Click to expand
-                </p>
-              </div>
-              <div className="grid grid-cols-7 gap-1.5">
-                {DAYS.map((d) => (
-                  <div
-                    key={d}
-                    className="text-[11px] font-semibold text-muted-foreground text-center py-2"
-                  >
-                    {d}
-                  </div>
-                ))}
-                {Array.from({ length: 35 }, (_, i) => {
-                  const dayNum = i - 5;
-                  const isValid = dayNum >= 1 && dayNum <= 31;
-                  const isToday = dayNum === 13;
-                  const dateStr = isValid
-                    ? `2026-03-${String(dayNum).padStart(2, "0")}`
-                    : "";
-                  const key = String(dayNum).padStart(2, "0");
-                  const dayPosts = isValid
-                    ? filtered.filter((p) => {
-                        const d = new Date(p.scheduledDate);
-                        return d.getDate() === dayNum && d.getMonth() === 2;
-                      })
-                    : [];
-                  const dayEvents = isValid
-                    ? calEvents.filter((e) => e.date === dateStr)
-                    : [];
-                  const isHovered = hoveredDay === dateStr;
-                  return (
-                    <div
-                      key={i}
-                      style={{ position: "relative" }}
-                      onMouseEnter={() => isValid && setHoveredDay(dateStr)}
-                      onMouseLeave={() => setHoveredDay(null)}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        if (isValid) setDragOver(key);
-                      }}
-                      onDragLeave={() => setDragOver(null)}
-                      onDrop={() => dropOnDay(key)}
-                      className={`min-h-[80px] rounded-xl p-1.5 transition-all ${!isValid ? "bg-transparent" : dragOver === key ? "bg-primary/10 border-2 border-dashed border-primary/40" : isToday ? "bg-primary/5 ring-1 ring-primary/30" : "bg-muted/20 hover:bg-muted/40"}`}
-                    >
-                      {isValid && (
-                        <>
-                          <div className="flex items-center justify-between mb-1">
-                            <div
-                              className={`inline-flex ${isToday ? "w-5 h-5 rounded-full items-center justify-center text-[10px] font-bold text-white" : "text-xs text-muted-foreground font-medium px-0.5"}`}
-                              style={
-                                isToday
-                                  ? {
-                                      background:
-                                        "linear-gradient(135deg,#6366f1,#8b5cf6)",
-                                    }
-                                  : {}
-                              }
-                            >
-                              {dayNum}
-                            </div>
-                            <AnimatePresence>
-                              {isHovered && addEventDay !== dateStr && (
-                                <motion.button
-                                  initial={{ opacity: 0, scale: 0.8 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.8 }}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setAddEventDay(dateStr);
-                                  }}
-                                  className="w-5 h-5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary flex items-center justify-center"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </motion.button>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                          {dayPosts.map((p) => (
-                            <div
-                              key={p.id}
-                              draggable
-                              onDragStart={() => setDragging(p.id)}
-                              onDragEnd={() => {
-                                setDragging(null);
-                                setDragOver(null);
-                              }}
-                              onClick={() =>
-                                setExpandedCard(
-                                  expandedCard === p.id ? null : p.id,
-                                )
-                              }
-                              className="mb-1 rounded-lg px-1.5 py-1 cursor-grab active:cursor-grabbing border"
-                              style={{
-                                backgroundColor:
-                                  p.cardColor || `${p.accountColor}15`,
-                                borderColor: `${p.accountColor}40`,
-                                borderLeftWidth: "3px",
-                                borderLeftColor: p.accountColor,
-                              }}
-                            >
-                              <div className="flex items-center gap-1 mb-0.5">
-                                <Av i={p.accountAvatar} c={p.accountColor} />
-                                <span className="text-[10px] font-semibold text-foreground truncate">
-                                  {p.theme}
-                                </span>
-                              </div>
-                              {expandedCard === p.id && (
-                                <div className="mt-1 space-y-1">
-                                  <p className="text-[9px] font-semibold text-muted-foreground uppercase">
-                                    ⏰ {p.scheduledTime}
-                                  </p>
-                                  <p className="text-[9px] text-muted-foreground leading-relaxed whitespace-pre-line">
-                                    {p.content}
-                                  </p>
-                                  {p.comments.filter((c) => c.text).length >
-                                    0 && (
-                                    <div className="mt-1 border-t border-border/30 pt-1">
-                                      <p className="text-[8px] font-semibold text-muted-foreground uppercase mb-0.5">
-                                        💬 Comments
-                                      </p>
-                                      {p.comments
-                                        .filter((c) => c.text)
-                                        .map((c, ci) => (
-                                          <p
-                                            key={c.id}
-                                            className="text-[9px] text-muted-foreground"
-                                          >
-                                            {ci + 1}. {c.text}
-                                          </p>
-                                        ))}
-                                    </div>
-                                  )}
-                                  <div className="flex items-center gap-1.5 mt-1">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditing(p);
-                                      }}
-                                      className="text-[9px] text-primary hover:underline"
-                                    >
-                                      Edit
-                                    </button>
-                                    <a
-                                      href={buildGCalUrl(p)}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="text-[9px] text-emerald-400 hover:underline"
-                                    >
-                                      📅 GCal
-                                    </a>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                          {dayEvents.map((ev) => {
-                            const ec = EVENT_COLORS[ev.color];
-                            const isForMe = ev.assignedToUid === user?.uid;
-                            return (
-                              <motion.div
-                                key={ev.id}
-                                initial={{ opacity: 0, y: 4 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setEditingEvent(ev);
-                                }}
-                                className="mb-1 rounded-xl overflow-hidden cursor-pointer group/ev shadow-sm hover:shadow-md transition-all"
-                                style={{
-                                  backgroundColor: ec.hex + "18",
-                                  border: `1px solid ${ec.hex}30`,
-                                }}
-                              >
-                                <div
-                                  className="h-1 w-full"
-                                  style={{ backgroundColor: ec.hex }}
-                                />
-                                <div className="px-2 py-2">
-                                  <p
-                                    className="text-[11px] font-bold leading-tight truncate"
-                                    style={{ color: ec.hex }}
-                                  >
-                                    {ev.title}
-                                  </p>
-                                  {ev.description && (
-                                    <p className="text-[9px] text-muted-foreground truncate mt-0.5">
-                                      {ev.description}
-                                    </p>
-                                  )}
-                                  <div className="flex items-center justify-between mt-1 gap-1">
-                                    <p className="text-[10px] text-muted-foreground font-medium">
-                                      {ev.time}–{ev.endTime}
-                                    </p>
-                                    <div className="flex items-center gap-1">
-                                      {isForMe && (
-                                        <span
-                                          className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                                          style={{
-                                            backgroundColor: ec.hex + "30",
-                                            color: ec.hex,
-                                          }}
-                                        >
-                                          you
-                                        </span>
-                                      )}
-                                      {ev.assignedAvatar && (
-                                        <div
-                                          className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
-                                          style={{ backgroundColor: ec.hex }}
-                                        >
-                                          {ev.assignedAvatar}
-                                        </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </motion.div>
-                            );
-                          })}
-                          <AnimatePresence>
-                            {addEventDay === dateStr && (
-                              <AddEventPanel
-                                date={dateStr}
-                                onClose={() => setAddEventDay(null)}
-                                onSave={handleSaveEvent}
-                                members={members}
-                              />
-                            )}
-                          </AnimatePresence>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+          {/* Calendar nav */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() =>
+                  setCalCurrentDate((d) => {
+                    const n = new Date(d);
+                    calMode === "monthly"
+                      ? n.setMonth(n.getMonth() - 1)
+                      : n.setDate(n.getDate() - 7);
+                    return new Date(n);
+                  })
+                }
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <h3 className="font-semibold text-foreground text-sm">
+                {calMode === "monthly"
+                  ? calCurrentDate.toLocaleDateString("en-US", {
+                      month: "long",
+                      year: "numeric",
+                    })
+                  : (() => {
+                      const mon = new Date(calCurrentDate);
+                      mon.setDate(mon.getDate() - mon.getDay() + 1);
+                      const sun = new Date(mon);
+                      sun.setDate(sun.getDate() + 6);
+                      return `${mon.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${sun.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+                    })()}
+              </h3>
+              <button
+                onClick={() =>
+                  setCalCurrentDate((d) => {
+                    const n = new Date(d);
+                    calMode === "monthly"
+                      ? n.setMonth(n.getMonth() + 1)
+                      : n.setDate(n.getDate() + 7);
+                    return new Date(n);
+                  })
+                }
+                className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCalCurrentDate(new Date())}
+                className="px-2.5 py-1 rounded-lg bg-muted text-xs text-muted-foreground hover:text-foreground"
+              >
+                Today
+              </button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Drag to reschedule · Click to expand
+            </p>
+          </div>
 
-          {/* Weekly */}
-          {calMode === "weekly" && (
-            <>
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <h3 className="font-semibold text-foreground">
-                    Week of March 9, 2026
-                  </h3>
-                  {(["Draft", "Scheduled", "Published"] as PostStatus[]).map(
-                    (s) => (
-                      <div
-                        key={s}
-                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-                        style={{ backgroundColor: `${STATUS_HEX[s]}20` }}
-                      >
-                        <span
-                          className="w-2 h-2 rounded-full"
-                          style={{ backgroundColor: STATUS_HEX[s] }}
-                        />
-                        <span
-                          className="text-[11px] font-medium"
-                          style={{ color: STATUS_HEX[s] }}
+          <div className="flex-1 overflow-auto p-4">
+            {/* ── Monthly ── */}
+            {calMode === "monthly" &&
+              (() => {
+                const year = calCurrentDate.getFullYear();
+                const month = calCurrentDate.getMonth();
+                const firstDay = new Date(year, month, 1).getDay();
+                const offset = (firstDay + 6) % 7; // Monday-first
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const today = new Date();
+                const totalCells = Math.ceil((offset + daysInMonth) / 7) * 7;
+                return (
+                  <>
+                    <div className="grid grid-cols-7 gap-1.5 mb-1">
+                      {DAYS.map((d) => (
+                        <div
+                          key={d}
+                          className="text-[11px] font-semibold text-muted-foreground text-center py-2"
                         >
-                          {s} {posts.filter((p) => p.status === s).length}
-                        </span>
-                      </div>
-                    ),
-                  )}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Drag to reschedule
-                </p>
-              </div>
-              <div className="grid grid-cols-7 gap-3">
-                {WEEK_DAYS.map((dayNum, di) => {
-                  const isToday = dayNum === 13;
-                  const dateStr = `2026-03-${String(dayNum).padStart(2, "0")}`;
-                  const key = String(dayNum).padStart(2, "0");
-                  const dayPosts = filtered.filter((p) => {
-                    const d = new Date(p.scheduledDate);
-                    return d.getDate() === dayNum && d.getMonth() === 2;
-                  });
-                  const dayEvents = calEvents.filter((e) => e.date === dateStr);
-                  const isHovered = hoveredDay === dateStr;
-                  return (
-                    <div
-                      key={dayNum}
-                      style={{ position: "relative" }}
-                      onMouseEnter={() => setHoveredDay(dateStr)}
-                      onMouseLeave={() => setHoveredDay(null)}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setDragOver(key);
-                      }}
-                      onDragLeave={() => setDragOver(null)}
-                      onDrop={() => dropOnDay(key)}
-                      className={`min-h-[420px] rounded-xl transition-all ${dragOver === key ? "bg-primary/5 border-2 border-dashed border-primary/40" : "bg-muted/20"}`}
-                    >
-                      <div
-                        className={`px-3 py-2.5 rounded-t-xl border-b border-border/50 flex items-center justify-between ${isToday ? "gradient-primary" : ""}`}
-                      >
-                        <div>
-                          <p
-                            className={`text-[11px] font-semibold ${isToday ? "text-white" : "text-muted-foreground"}`}
-                          >
-                            {DAYS[di]}
-                          </p>
-                          <p
-                            className={`text-lg font-bold leading-none ${isToday ? "text-white" : "text-foreground"}`}
-                          >
-                            {dayNum}
-                          </p>
+                          {d}
                         </div>
-                        <AnimatePresence>
-                          {isHovered && addEventDay !== dateStr && (
-                            <motion.button
-                              initial={{ opacity: 0, scale: 0.8 }}
-                              animate={{ opacity: 1, scale: 1 }}
-                              exit={{ opacity: 0, scale: 0.8 }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setAddEventDay(dateStr);
-                              }}
-                              className={`w-6 h-6 rounded-full flex items-center justify-center ${isToday ? "bg-white/20 hover:bg-white/30 text-white" : "bg-primary/10 hover:bg-primary/20 text-primary"}`}
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                            </motion.button>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                      <div className="p-2 space-y-2">
-                        {dayEvents.map((ev) => {
-                          const ec = EVENT_COLORS[ev.color];
-                          const isForMe = ev.assignedToUid === user?.uid;
-                          return (
-                            <motion.div
-                              key={ev.id}
-                              initial={{ opacity: 0, x: -4 }}
-                              animate={{ opacity: 1, x: 0 }}
-                              onClick={() => setEditingEvent(ev)}
-                              className="rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-all cursor-pointer"
-                              style={{
-                                backgroundColor: ec.hex + "15",
-                                border: `1px solid ${ec.hex}35`,
-                              }}
-                            >
-                              {/* Left accent */}
-                              <div className="flex">
-                                <div
-                                  className="w-1 flex-shrink-0 rounded-l-xl"
-                                  style={{ backgroundColor: ec.hex }}
-                                />
-                                <div className="flex-1 px-2.5 py-2">
-                                  <p
-                                    className="text-[12px] font-bold leading-snug"
-                                    style={{ color: ec.hex }}
-                                  >
-                                    {ev.title}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                                    ⏰ {ev.time} → {ev.endTime}
-                                  </p>
-                                  {ev.assignedTo && (
-                                    <div className="flex items-center gap-1.5 mt-1.5">
-                                      <div
-                                        className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white"
-                                        style={{ backgroundColor: ec.hex }}
-                                      >
-                                        {ev.assignedAvatar}
-                                      </div>
-                                      <span
-                                        className="text-[10px] font-medium"
-                                        style={{ color: ec.hex + "cc" }}
-                                      >
-                                        {ev.assignedTo.split(" ")[0]}
-                                        {isForMe ? " (you)" : ""}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {ev.reminders.length > 0 && (
-                                    <p className="text-[9px] text-muted-foreground/60 mt-1">
-                                      🔔{" "}
-                                      {ev.reminders
-                                        .map((m) =>
-                                          m < 60 ? `${m}min` : `${m / 60}h`,
-                                        )
-                                        .join(", ")}{" "}
-                                      before
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-                            </motion.div>
-                          );
-                        })}
-                        {dayPosts.map((p) => (
+                      ))}
+                    </div>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {Array.from({ length: totalCells }, (_, i) => {
+                        const dayNum = i - offset + 1;
+                        const isValid = dayNum >= 1 && dayNum <= daysInMonth;
+                        const isToday =
+                          isValid &&
+                          today.getDate() === dayNum &&
+                          today.getMonth() === month &&
+                          today.getFullYear() === year;
+                        const dateStr = isValid
+                          ? `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`
+                          : "";
+                        const dayPosts = isValid
+                          ? filtered.filter((p) => p.scheduledDate === dateStr)
+                          : [];
+                        const dayEvents = isValid
+                          ? calEvents.filter((e) => e.date === dateStr)
+                          : [];
+                        const isHovered = hoveredDay === dateStr;
+                        return (
                           <div
-                            key={p.id}
-                            draggable
-                            onDragStart={() => setDragging(p.id)}
-                            onDragEnd={() => {
-                              setDragging(null);
+                            key={i}
+                            style={{ position: "relative" }}
+                            onMouseEnter={() =>
+                              isValid && setHoveredDay(dateStr)
+                            }
+                            onMouseLeave={() => setHoveredDay(null)}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              if (isValid) setDragOver(dateStr);
+                            }}
+                            onDragLeave={() => setDragOver(null)}
+                            onDrop={() => {
+                              dropOnDay(dateStr);
                               setDragOver(null);
                             }}
-                            onClick={() =>
-                              setExpandedCard(
-                                expandedCard === p.id ? null : p.id,
-                              )
-                            }
-                            className="rounded-xl p-3 cursor-grab active:cursor-grabbing hover:shadow-md transition-all border border-border/60"
-                            style={{ backgroundColor: p.cardColor || "white" }}
+                            className={`min-h-[80px] rounded-xl p-1.5 transition-all ${!isValid ? "bg-transparent" : dragOver === dateStr ? "bg-primary/10 border-2 border-dashed border-primary/40" : isToday ? "bg-primary/5 ring-1 ring-primary/30" : "bg-muted/20 hover:bg-muted/40"}`}
                           >
-                            <div className="flex items-center gap-2 mb-2">
-                              <Av i={p.accountAvatar} c={p.accountColor} />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-semibold text-foreground truncate">
-                                  {p.account.split(" ")[0]}
-                                </p>
-                                <p
-                                  className="text-[10px] font-bold"
-                                  style={{ color: STATUS_HEX[p.status] }}
-                                >
-                                  ⏰ {p.scheduledTime}
-                                </p>
-                              </div>
-                              <span
-                                className={`text-[8px] px-1.5 py-0.5 rounded-full font-medium ${STATUS_COLORS[p.status]}`}
-                              >
-                                {p.status}
-                              </span>
-                            </div>
-                            <p className="text-[11px] font-semibold text-foreground mb-1 line-clamp-1">
-                              {p.theme}
-                            </p>
-                            {expandedCard === p.id ? (
-                              <div className="space-y-2">
-                                <p className="text-[10px] text-muted-foreground leading-relaxed whitespace-pre-line">
-                                  {p.content}
-                                </p>
-                                {p.comments.filter((c) => c.text).length >
-                                  0 && (
-                                  <div className="border-t border-border/40 pt-2">
-                                    <p className="text-[9px] font-semibold text-muted-foreground uppercase mb-1">
-                                      💬 Comments
-                                    </p>
-                                    {p.comments
-                                      .filter((c) => c.text)
-                                      .map((c, ci) => (
-                                        <p
-                                          key={c.id}
-                                          className="text-[9px] text-muted-foreground mb-0.5"
-                                        >
-                                          {ci + 1}. {c.text}
-                                        </p>
-                                      ))}
-                                  </div>
-                                )}
-                                <div className="flex gap-2 items-center flex-wrap">
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditing(p);
-                                    }}
-                                    className="text-[9px] text-primary hover:underline"
-                                  >
-                                    Edit post
-                                  </button>
-                                  <a
-                                    href={buildGCalUrl(
-                                      p,
-                                      members.find(
-                                        (m) => m.uid === p.assignedToUid,
-                                      )?.email,
-                                    )}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-[9px] text-emerald-400 hover:underline"
-                                  >
-                                    📅 Add to GCal
-                                  </a>
-                                </div>
-                              </div>
-                            ) : (
+                            {isValid && (
                               <>
-                                <p className="text-[10px] text-muted-foreground line-clamp-2 leading-relaxed mb-2">
-                                  {p.content}
-                                </p>
-                                <div className="flex flex-wrap gap-0.5">
-                                  {(p.tags || []).slice(0, 1).map((t) => (
-                                    <span
-                                      key={t}
-                                      className={`text-[8px] px-1.5 py-0.5 rounded-full border ${TAG_COLORS[t as ContentTag] || ""}`}
-                                    >
-                                      {t}
-                                    </span>
-                                  ))}
-                                  <span
-                                    className={`text-[8px] px-1.5 py-0.5 rounded-full ${FUNNEL_COLORS[p.funnel]}`}
+                                <div className="flex items-center justify-between mb-1">
+                                  <div
+                                    className={`inline-flex ${isToday ? "w-5 h-5 rounded-full items-center justify-center text-[10px] font-bold text-white" : "text-xs text-muted-foreground font-medium px-0.5"}`}
+                                    style={
+                                      isToday
+                                        ? {
+                                            background:
+                                              "linear-gradient(135deg,#6366f1,#8b5cf6)",
+                                          }
+                                        : {}
+                                    }
                                   >
-                                    {p.funnel}
-                                  </span>
-                                  {p.comments.filter((c) => c.text).length >
-                                    0 && (
-                                    <span className="text-[8px] text-muted-foreground">
-                                      💬{" "}
-                                      {p.comments.filter((c) => c.text).length}
-                                    </span>
-                                  )}
+                                    {dayNum}
+                                  </div>
+                                  <AnimatePresence>
+                                    {isHovered && addEventDay !== dateStr && (
+                                      <motion.button
+                                        initial={{ opacity: 0, scale: 0.8 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        exit={{ opacity: 0, scale: 0.8 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setAddEventDay(dateStr);
+                                        }}
+                                        className="w-5 h-5 rounded-full bg-primary/10 hover:bg-primary/20 text-primary flex items-center justify-center"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                      </motion.button>
+                                    )}
+                                  </AnimatePresence>
                                 </div>
+                                {dayPosts.slice(0, 3).map((p) => (
+                                  <div
+                                    key={p.id}
+                                    draggable
+                                    onDragStart={() => setDragging(p.id)}
+                                    onDragEnd={() => {
+                                      setDragging(null);
+                                      setDragOver(null);
+                                    }}
+                                    onClick={() =>
+                                      setExpandedCard(
+                                        expandedCard === p.id ? null : p.id,
+                                      )
+                                    }
+                                    className="mb-1 rounded-lg px-1.5 py-1 cursor-grab active:cursor-grabbing border text-left w-full"
+                                    style={{
+                                      backgroundColor:
+                                        p.cardColor || `${p.accountColor}15`,
+                                      borderColor: `${p.accountColor}40`,
+                                      borderLeftWidth: "3px",
+                                      borderLeftColor: p.accountColor,
+                                    }}
+                                  >
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[9px] font-semibold text-foreground truncate">
+                                        {p.scheduledTime}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] font-semibold text-foreground truncate">
+                                      {p.theme || p.content.slice(0, 20)}
+                                    </p>
+                                    {expandedCard === p.id && (
+                                      <div className="mt-1 space-y-1">
+                                        <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                          {p.content}
+                                        </p>
+                                        <div className="flex gap-2">
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setEditing(p);
+                                            }}
+                                            className="text-[9px] text-primary hover:underline"
+                                          >
+                                            Edit
+                                          </button>
+                                          <a
+                                            href={buildGCalUrl(p)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="text-[9px] text-emerald-400 hover:underline"
+                                          >
+                                            📅 GCal
+                                          </a>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {dayPosts.length > 3 && (
+                                  <p className="text-[9px] text-muted-foreground px-1">
+                                    +{dayPosts.length - 3} more
+                                  </p>
+                                )}
+                                {dayEvents.map((ev) => {
+                                  const ec = EVENT_COLORS[ev.color];
+                                  return (
+                                    <motion.div
+                                      key={ev.id}
+                                      initial={{ opacity: 0, y: 4 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingEvent(ev);
+                                      }}
+                                      className="mb-1 rounded-xl overflow-hidden cursor-pointer shadow-sm hover:shadow-md transition-all"
+                                      style={{
+                                        backgroundColor: ec.hex + "18",
+                                        border: `1px solid ${ec.hex}30`,
+                                      }}
+                                    >
+                                      <div
+                                        className="h-1 w-full"
+                                        style={{ backgroundColor: ec.hex }}
+                                      />
+                                      <div className="px-2 py-1.5">
+                                        <p
+                                          className="text-[10px] font-bold truncate"
+                                          style={{ color: ec.hex }}
+                                        >
+                                          {ev.title}
+                                        </p>
+                                        <p className="text-[9px] text-muted-foreground">
+                                          {ev.time}–{ev.endTime}
+                                        </p>
+                                      </div>
+                                    </motion.div>
+                                  );
+                                })}
+                                <AnimatePresence>
+                                  {addEventDay === dateStr && (
+                                    <AddEventPanel
+                                      date={dateStr}
+                                      onClose={() => setAddEventDay(null)}
+                                      onSave={handleSaveEvent}
+                                      members={members}
+                                    />
+                                  )}
+                                </AnimatePresence>
                               </>
                             )}
                           </div>
-                        ))}
-                        {dayPosts.length === 0 && dayEvents.length === 0 && (
-                          <button
-                            onClick={() => setAddEventDay(dateStr)}
-                            className="w-full h-16 rounded-xl border-2 border-dashed border-border/40 flex items-center justify-center hover:border-primary/30 hover:bg-primary/5 transition-all"
-                          >
-                            <Plus className="w-4 h-4 text-muted-foreground/40" />
-                          </button>
-                        )}
-                      </div>
-                      <AnimatePresence>
-                        {addEventDay === dateStr && (
-                          <AddEventPanel
-                            date={dateStr}
-                            onClose={() => setAddEventDay(null)}
-                            onSave={handleSaveEvent}
-                            members={members}
-                          />
-                        )}
-                      </AnimatePresence>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
+                  </>
+                );
+              })()}
+
+            {/* ── Weekly with hourly time slots ── */}
+            {calMode === "weekly" &&
+              (() => {
+                // Get Monday of the current week
+                const monday = new Date(calCurrentDate);
+                const dow = monday.getDay();
+                monday.setDate(monday.getDate() - (dow === 0 ? 6 : dow - 1));
+                const weekDays = Array.from({ length: 7 }, (_, i) => {
+                  const d = new Date(monday);
+                  d.setDate(d.getDate() + i);
+                  return d;
+                });
+                const today = new Date();
+                const HOURS = Array.from({ length: 18 }, (_, i) => i + 6); // 6am–11pm
+                const SLOT_H = 64; // px per hour
+
+                return (
+                  <div className="flex flex-col min-w-[700px]">
+                    {/* Day headers */}
+                    <div className="flex border-b border-border/50 mb-0">
+                      <div className="w-14 flex-shrink-0" />
+                      {weekDays.map((d, di) => {
+                        const isToday =
+                          d.toDateString() === today.toDateString();
+                        return (
+                          <div
+                            key={di}
+                            className={`flex-1 text-center py-2 px-1 ${isToday ? "gradient-primary rounded-t-xl" : ""}`}
+                          >
+                            <p
+                              className={`text-[10px] font-semibold ${isToday ? "text-white" : "text-muted-foreground"}`}
+                            >
+                              {DAYS[di]}
+                            </p>
+                            <p
+                              className={`text-lg font-bold leading-none ${isToday ? "text-white" : "text-foreground"}`}
+                            >
+                              {d.getDate()}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Time grid */}
+                    <div
+                      className="flex relative overflow-y-auto"
+                      style={{ maxHeight: "60vh" }}
+                    >
+                      {/* Hour labels */}
+                      <div className="w-14 flex-shrink-0">
+                        {HOURS.map((h) => (
+                          <div
+                            key={h}
+                            style={{ height: SLOT_H }}
+                            className="flex items-start justify-end pr-2 pt-1"
+                          >
+                            <span className="text-[10px] text-muted-foreground/60 font-medium">
+                              {h === 12
+                                ? "12pm"
+                                : h < 12
+                                  ? `${h}am`
+                                  : `${h - 12}pm`}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Day columns */}
+                      {weekDays.map((d, di) => {
+                        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                        const isToday =
+                          d.toDateString() === today.toDateString();
+                        const dayPosts = filtered.filter(
+                          (p) => p.scheduledDate === dateStr,
+                        );
+                        const dayEvents = calEvents.filter(
+                          (e) => e.date === dateStr,
+                        );
+
+                        return (
+                          <div
+                            key={di}
+                            className="flex-1 relative border-l border-border/30"
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              setDragOver(dateStr);
+                            }}
+                            onDragLeave={() => setDragOver(null)}
+                            onDrop={() => {
+                              dropOnDay(dateStr);
+                              setDragOver(null);
+                            }}
+                            style={{
+                              backgroundColor:
+                                dragOver === dateStr
+                                  ? "rgba(99,102,241,0.04)"
+                                  : undefined,
+                            }}
+                          >
+                            {/* Hour gridlines */}
+                            {HOURS.map((h) => (
+                              <div
+                                key={h}
+                                style={{ height: SLOT_H }}
+                                className="border-t border-border/20 relative group/slot"
+                                onMouseEnter={() =>
+                                  setHoveredDay(`${dateStr}-${h}`)
+                                }
+                                onMouseLeave={() => setHoveredDay(null)}
+                              >
+                                {hoveredDay === `${dateStr}-${h}` && (
+                                  <button
+                                    onClick={() => setAddEventDay(dateStr)}
+                                    className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/slot:opacity-100 transition-opacity"
+                                  >
+                                    <span className="text-[10px] text-primary/50">
+                                      + Add
+                                    </span>
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+
+                            {/* Today current time line */}
+                            {isToday &&
+                              (() => {
+                                const now = new Date();
+                                const mins =
+                                  (now.getHours() - 6) * 60 + now.getMinutes();
+                                if (mins < 0 || mins > 18 * 60) return null;
+                                return (
+                                  <div
+                                    className="absolute left-0 right-0 z-20 flex items-center pointer-events-none"
+                                    style={{ top: (mins / 60) * SLOT_H }}
+                                  >
+                                    <div className="w-2 h-2 rounded-full bg-red-500 flex-shrink-0 -ml-1" />
+                                    <div className="flex-1 h-px bg-red-500" />
+                                  </div>
+                                );
+                              })()}
+
+                            {/* Posts positioned by time */}
+                            {dayPosts.map((p) => {
+                              const [ph, pm] = (p.scheduledTime || "09:00")
+                                .split(":")
+                                .map(Number);
+                              const top = (((ph - 6) * 60 + pm) / 60) * SLOT_H;
+                              if (top < 0) return null;
+                              return (
+                                <div
+                                  key={p.id}
+                                  draggable
+                                  onDragStart={() => setDragging(p.id)}
+                                  onDragEnd={() => {
+                                    setDragging(null);
+                                    setDragOver(null);
+                                  }}
+                                  onClick={() => setEditing(p)}
+                                  className="absolute left-1 right-1 rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:shadow-md transition-all z-10 overflow-hidden"
+                                  style={{
+                                    top,
+                                    minHeight: 44,
+                                    backgroundColor:
+                                      p.cardColor ||
+                                      STATUS_HEX[p.status] + "20",
+                                    borderLeft: `3px solid ${STATUS_HEX[p.status]}`,
+                                    border: `1px solid ${STATUS_HEX[p.status]}40`,
+                                    borderLeftWidth: 3,
+                                  }}
+                                >
+                                  <p
+                                    className="text-[10px] font-bold truncate"
+                                    style={{ color: STATUS_HEX[p.status] }}
+                                  >
+                                    <span className="material-symbols-outlined text-[12px] align-middle mr-0.5">
+                                      alarm
+                                    </span>
+                                    {p.scheduledTime}
+                                  </p>
+                                  <p className="text-[11px] font-semibold text-foreground truncate">
+                                    {p.theme || p.content.slice(0, 25)}
+                                  </p>
+                                  {p.accountAvatarUrl ? (
+                                    <img
+                                      src={p.accountAvatarUrl}
+                                      className="w-4 h-4 rounded-full object-cover mt-1"
+                                      alt=""
+                                    />
+                                  ) : (
+                                    <div
+                                      className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white mt-1"
+                                      style={{
+                                        backgroundColor: p.accountColor,
+                                      }}
+                                    >
+                                      {p.accountAvatar}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+
+                            {/* Events positioned by time */}
+                            {dayEvents.map((ev) => {
+                              const ec = EVENT_COLORS[ev.color];
+                              const [ph, pm] = (ev.time || "09:00")
+                                .split(":")
+                                .map(Number);
+                              const [eh, em] = (ev.endTime || "10:00")
+                                .split(":")
+                                .map(Number);
+                              const top = (((ph - 6) * 60 + pm) / 60) * SLOT_H;
+                              const height = Math.max(
+                                32,
+                                (((eh - ph) * 60 + (em - pm)) / 60) * SLOT_H,
+                              );
+                              if (top < 0) return null;
+                              return (
+                                <div
+                                  key={ev.id}
+                                  onClick={() => setEditingEvent(ev)}
+                                  className="absolute left-1 right-1 rounded-lg overflow-hidden cursor-pointer hover:shadow-md transition-all z-10"
+                                  style={{
+                                    top,
+                                    height,
+                                    backgroundColor: ec.hex + "18",
+                                    border: `1px solid ${ec.hex}35`,
+                                    borderLeftWidth: 3,
+                                    borderLeftColor: ec.hex,
+                                  }}
+                                >
+                                  <div className="px-2 py-1">
+                                    <p
+                                      className="text-[11px] font-bold truncate"
+                                      style={{ color: ec.hex }}
+                                    >
+                                      {ev.title}
+                                    </p>
+                                    <p className="text-[9px] text-muted-foreground">
+                                      {ev.time}–{ev.endTime}
+                                    </p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add event panel */}
+                    <AnimatePresence>
+                      {addEventDay && (
+                        <div
+                          className="fixed inset-0 z-[150] flex items-center justify-center bg-background/50 backdrop-blur-sm"
+                          onClick={() => setAddEventDay(null)}
+                        >
+                          <div onClick={(e) => e.stopPropagation()}>
+                            <AddEventPanel
+                              date={addEventDay}
+                              onClose={() => setAddEventDay(null)}
+                              onSave={handleSaveEvent}
+                              members={members}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })()}
+          </div>
         </motion.div>
       )}
-
+      {/* Editor Modal */}
       {/* Editor Modal */}
       <AnimatePresence>
         {editing !== undefined && (
