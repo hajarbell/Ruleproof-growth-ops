@@ -1,204 +1,350 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { initializeApp, getApps, cert } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
 
-// ─── LinkedIn media upload + post ─────────────────────────────────────────────
-// Supports: text-only, single image, multiple images, video
-//
-// IMPORTANT: this file lives in /api/linkedin/publish.ts
-// The api/ folder must have its OWN package.json with:
-//   { "type": "commonjs" }         ← NOT "module"
-// And its own tsconfig.json with:
-//   "module": "CommonJS"
-// This is separate from your frontend package.json which can be ESM.
+// FIX: modular imports work in ESM — "import * as admin" is legacy CommonJS pattern
+if (!getApps().length) {
+  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!);
+  initializeApp({ credential: cert(serviceAccount) });
+}
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // ── CORS preflight — required for browser → Vercel function calls ────────────
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  if (req.method === "OPTIONS") return res.status(200).end();
+const db = getFirestore();
 
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+async function resolveToken(
+  wsId: string,
+  linkedinId: string | undefined,
+  linkedinAccountId: string | undefined,
+): Promise<string | null> {
+  if (linkedinId) {
+    try {
+      const snap = await db
+        .collection("workspaces")
+        .doc(wsId)
+        .collection("linkedinTokens")
+        .doc(linkedinId)
+        .get();
+      const t = snap.data()?.accessToken;
+      if (t && t.length > 20) return t;
+    } catch {}
   }
 
-  const { accessToken, authorUrn, text, media } = req.body;
-
-  if (!accessToken || !authorUrn || !text) {
-    return res
-      .status(400)
-      .json({ error: "Missing required fields: accessToken, authorUrn, text" });
+  if (linkedinAccountId) {
+    try {
+      const snap = await db
+        .collection("workspaces")
+        .doc(wsId)
+        .collection("linkedinAccounts")
+        .doc(linkedinAccountId)
+        .get();
+      const t = snap.data()?.accessToken;
+      if (t && t.length > 20) return t;
+    } catch {}
   }
 
-  // Validate token looks real before hitting LinkedIn
-  if (accessToken.length < 20) {
-    return res
-      .status(400)
-      .json({ error: "Access token appears invalid (too short)" });
-  }
+  try {
+    const all = await db
+      .collection("workspaces")
+      .doc(wsId)
+      .collection("linkedinTokens")
+      .get();
+    for (const d of all.docs) {
+      const t = d.data()?.accessToken;
+      if (t && t.length > 20) return t;
+    }
+  } catch {}
 
-  const headers: Record<string, string> = {
+  return null;
+}
+
+async function uploadMedia(
+  accessToken: string,
+  authorUrn: string,
+  base64: string,
+  mimeType: string,
+): Promise<string | null> {
+  const isVideo = mimeType.startsWith("video/");
+  const liHeaders = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
     "X-Restli-Protocol-Version": "2.0.0",
-    "LinkedIn-Version": "202304", // ← pin to a stable API version
   };
 
   try {
-    // ── Text-only post ──────────────────────────────────────────────────────
-    if (!media || media.length === 0) {
-      const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    const registerRes = await fetch(
+      "https://api.linkedin.com/v2/assets?action=registerUpload",
+      {
         method: "POST",
-        headers,
+        headers: liHeaders,
         body: JSON.stringify({
-          author: authorUrn,
-          lifecycleState: "PUBLISHED",
-          specificContent: {
-            "com.linkedin.ugc.ShareContent": {
-              shareCommentary: { text },
-              shareMediaCategory: "NONE",
-            },
-          },
-          visibility: {
-            "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
+          registerUploadRequest: {
+            recipes: [
+              isVideo
+                ? "urn:li:digitalmediaRecipe:feedshare-video"
+                : "urn:li:digitalmediaRecipe:feedshare-image",
+            ],
+            owner: authorUrn,
+            serviceRelationships: [
+              {
+                relationshipType: "OWNER",
+                identifier: "urn:li:userGeneratedContent",
+              },
+            ],
           },
         }),
-      });
+      },
+    );
 
-      const data = await liRes.json();
-      if (!liRes.ok) {
-        console.error(
-          "[Publish] LinkedIn text post error:",
-          JSON.stringify(data),
-        );
-        return res.status(liRes.status).json({ error: data });
-      }
-      return res.status(200).json({ success: true, id: data.id });
+    const reg = await registerRes.json();
+    if (!registerRes.ok) {
+      console.error("[Cron] Register failed:", reg);
+      return null;
     }
 
-    // ── Media post ──────────────────────────────────────────────────────────
-    const isVideo = media[0].mimeType.startsWith("video/");
-    const assetUrns: string[] = [];
+    const uploadUrl =
+      reg.value?.uploadMechanism?.[
+        "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
+      ]?.uploadUrl;
+    const assetUrn = reg.value?.asset;
 
-    for (const file of media) {
-      // ── Step 1: Register upload ───────────────────────────────────────────
-      const registerRes = await fetch(
-        "https://api.linkedin.com/v2/assets?action=registerUpload",
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            registerUploadRequest: {
-              recipes: [
-                isVideo
-                  ? "urn:li:digitalmediaRecipe:feedshare-video"
-                  : "urn:li:digitalmediaRecipe:feedshare-image",
-              ],
-              owner: authorUrn,
-              serviceRelationships: [
-                {
-                  relationshipType: "OWNER",
-                  identifier: "urn:li:userGeneratedContent",
-                },
-              ],
-            },
-          }),
-        },
-      );
-
-      const registerData = await registerRes.json();
-
-      if (!registerRes.ok) {
-        console.error(
-          "[Publish] Register upload failed:",
-          JSON.stringify(registerData),
-        );
-        return res
-          .status(500)
-          .json({ error: "Failed to register upload", detail: registerData });
-      }
-
-      const uploadUrl =
-        registerData.value?.uploadMechanism?.[
-          "com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest"
-        ]?.uploadUrl;
-      const assetUrn = registerData.value?.asset;
-
-      if (!uploadUrl || !assetUrn) {
-        console.error(
-          "[Publish] Missing uploadUrl or assetUrn:",
-          JSON.stringify(registerData),
-        );
-        return res
-          .status(500)
-          .json({ error: "Missing uploadUrl or assetUrn from LinkedIn" });
-      }
-
-      // ── Step 2: Upload binary ─────────────────────────────────────────────
-      // file.base64 is raw base64 (no data: prefix) — strip it defensively
-      const cleanBase64 = file.base64.includes(",")
-        ? file.base64.split(",")[1]
-        : file.base64;
-
-      const binary = Buffer.from(cleanBase64, "base64");
-
-      const uploadRes = await fetch(uploadUrl, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": file.mimeType,
-        },
-        body: binary,
-      });
-
-      if (!uploadRes.ok) {
-        const uploadErr = await uploadRes.text();
-        console.error("[Publish] Binary upload failed:", uploadErr);
-        return res
-          .status(500)
-          .json({ error: "Failed to upload media binary", detail: uploadErr });
-      }
-
-      assetUrns.push(assetUrn);
+    if (!uploadUrl || !assetUrn) {
+      console.error("[Cron] No uploadUrl/assetUrn");
+      return null;
     }
 
-    // ── Step 3: Create post with media ────────────────────────────────────────
-    const mediaObjects = assetUrns.map((urn) => ({
-      status: "READY",
-      media: urn,
-      ...(isVideo ? {} : { title: { text: "" }, description: { text: "" } }),
-    }));
+    const cleanBase64 = base64.includes(",") ? base64.split(",")[1] : base64;
+    const binary = Buffer.from(cleanBase64, "base64");
 
-    const liRes = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    const upRes = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": mimeType,
+      },
+      body: binary,
+    });
+
+    if (!upRes.ok) {
+      console.error("[Cron] Binary upload failed:", await upRes.text());
+      return null;
+    }
+
+    return assetUrn;
+  } catch (e) {
+    console.error("[Cron] uploadMedia error:", e);
+    return null;
+  }
+}
+
+async function publishToLinkedIn(
+  accessToken: string,
+  authorUrn: string,
+  text: string,
+  mediaBase64?: string[],
+  mediaTypes?: string[],
+): Promise<{ ok: boolean; id?: string; error?: any }> {
+  const liHeaders = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "X-Restli-Protocol-Version": "2.0.0",
+  };
+
+  if (!mediaBase64 || mediaBase64.length === 0) {
+    const r = await fetch("https://api.linkedin.com/v2/ugcPosts", {
       method: "POST",
-      headers,
+      headers: liHeaders,
       body: JSON.stringify({
         author: authorUrn,
         lifecycleState: "PUBLISHED",
         specificContent: {
           "com.linkedin.ugc.ShareContent": {
             shareCommentary: { text },
-            shareMediaCategory: isVideo ? "VIDEO" : "IMAGE",
-            media: mediaObjects,
+            shareMediaCategory: "NONE",
           },
         },
-        visibility: {
-          "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC",
-        },
+        visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
       }),
     });
+    const d = await r.json();
+    return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
+  }
 
-    const data = await liRes.json();
+  const isVideo = (mediaTypes?.[0] ?? "").startsWith("video/");
+  const assetUrns: string[] = [];
 
-    if (!liRes.ok) {
-      console.error("[Publish] Post with media failed:", JSON.stringify(data));
-      return res.status(liRes.status).json({ error: data });
+  for (let i = 0; i < mediaBase64.length; i++) {
+    const mime = mediaTypes?.[i] ?? "image/jpeg";
+    const urn = await uploadMedia(accessToken, authorUrn, mediaBase64[i], mime);
+    if (!urn) {
+      console.warn(`[Cron] Media ${i} failed — falling back to text-only`);
+      return publishToLinkedIn(accessToken, authorUrn, text);
+    }
+    assetUrns.push(urn);
+  }
+
+  const r = await fetch("https://api.linkedin.com/v2/ugcPosts", {
+    method: "POST",
+    headers: liHeaders,
+    body: JSON.stringify({
+      author: authorUrn,
+      lifecycleState: "PUBLISHED",
+      specificContent: {
+        "com.linkedin.ugc.ShareContent": {
+          shareCommentary: { text },
+          shareMediaCategory: isVideo ? "VIDEO" : "IMAGE",
+          media: assetUrns.map((urn) => ({
+            status: "READY",
+            media: urn,
+            ...(isVideo
+              ? {}
+              : { title: { text: "" }, description: { text: "" } }),
+          })),
+        },
+      },
+      visibility: { "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC" },
+    }),
+  });
+  const d = await r.json();
+  return r.ok ? { ok: true, id: d.id } : { ok: false, error: d };
+}
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  const secret =
+    (req.headers["x-cron-secret"] as string) ||
+    (req.headers["authorization"] as string)?.replace("Bearer ", "") ||
+    (req.query.secret as string);
+
+  if (!process.env.CRON_SECRET || secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  const now = new Date();
+  const results: {
+    postId: string;
+    wsId: string;
+    status: string;
+    error?: string;
+  }[] = [];
+
+  try {
+    const workspaceRefs = await db.collection("workspaces").listDocuments();
+
+    for (const wsRef of workspaceRefs) {
+      const wsId = wsRef.id;
+
+      const postsSnap = await db
+        .collection("workspaces")
+        .doc(wsId)
+        .collection("contentPosts")
+        .where("status", "==", "Scheduled")
+        .get();
+
+      for (const postDoc of postsSnap.docs) {
+        const post = postDoc.data();
+        const scheduledDate = post.scheduledDate as string;
+        const scheduledTime = (post.scheduledTime as string) || "09:00";
+
+        if (!scheduledDate) continue;
+
+        const scheduledDT = new Date(
+          `${scheduledDate}T${scheduledTime}:00.000Z`,
+        );
+        if (scheduledDT > now) continue;
+
+        const linkedinId = post.linkedinId as string | undefined;
+        const accessToken = await resolveToken(
+          wsId,
+          linkedinId,
+          post.linkedinAccountId,
+        );
+
+        if (!accessToken) {
+          console.warn(`[Cron] No token — post ${postDoc.id} ws ${wsId}`);
+          results.push({
+            postId: postDoc.id,
+            wsId,
+            status: "skipped_no_token",
+          });
+          continue;
+        }
+
+        try {
+          const authorUrn = `urn:li:person:${linkedinId}`;
+          const mediaBase64 = post.mediaBase64 as string[] | undefined;
+          const mediaTypes = post.mediaTypes as string[] | undefined;
+
+          const liResult = await publishToLinkedIn(
+            accessToken,
+            authorUrn,
+            post.content,
+            mediaBase64,
+            mediaTypes,
+          );
+
+          if (liResult.ok) {
+            await db
+              .collection("workspaces")
+              .doc(wsId)
+              .collection("contentPosts")
+              .doc(postDoc.id)
+              .update({
+                status: "Published",
+                publishedAt: now.toISOString(),
+                linkedinPostId: liResult.id ?? "",
+              });
+
+            if (post.assignedToUid) {
+              await db
+                .collection("workspaces")
+                .doc(wsId)
+                .collection("notifications")
+                .add({
+                  type: "post_published",
+                  message: `✅ "${post.theme}" was auto-published to LinkedIn!`,
+                  targetUid: post.assignedToUid,
+                  postId: postDoc.id,
+                  read: false,
+                  createdAt: now.toISOString(),
+                });
+            }
+
+            results.push({ postId: postDoc.id, wsId, status: "published" });
+            console.log(
+              `[Cron] ✅ Published ${postDoc.id}`,
+              mediaBase64?.length
+                ? `with ${mediaBase64.length} media`
+                : "text-only",
+            );
+          } else {
+            console.error(
+              `[Cron] LinkedIn error ${postDoc.id}:`,
+              liResult.error,
+            );
+            results.push({
+              postId: postDoc.id,
+              wsId,
+              status: "linkedin_error",
+              error: JSON.stringify(liResult.error),
+            });
+          }
+        } catch (e) {
+          console.error(`[Cron] Exception ${postDoc.id}:`, e);
+          results.push({
+            postId: postDoc.id,
+            wsId,
+            status: "exception",
+            error: String(e),
+          });
+        }
+      }
     }
 
-    return res.status(200).json({ success: true, id: data.id });
+    return res.status(200).json({ checked: now.toISOString(), results });
   } catch (err) {
-    console.error("[Publish] Server error:", err);
-    return res
-      .status(500)
-      .json({ error: "Internal server error", detail: String(err) });
+    console.error("[Cron] Fatal:", err);
+    return res.status(500).json({ error: String(err) });
   }
 }
