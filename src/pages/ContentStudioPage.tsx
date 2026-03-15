@@ -1411,7 +1411,9 @@ function EditorModal({
   const [selFunnel, setSelFunnel] = useState<FunnelTag>(post?.funnel ?? "TOFU");
   const [status, setStatus] = useState<PostStatus>(post?.status ?? "Draft");
   const [date, setDate] = useState(post?.scheduledDate ?? "");
-  const [time, setTime] = useState(post?.scheduledTime ?? "09:00");
+  // FIX: default time to current time, not 09:00
+  const nowTime = new Date().toTimeString().slice(0, 5);
+  const [time, setTime] = useState(post?.scheduledTime ?? nowTime);
   const [assignedUid, setAssignedUid] = useState(
     post?.assignedToUid ?? members[0]?.uid ?? "",
   );
@@ -1438,7 +1440,17 @@ function EditorModal({
   );
   const [emojiTab, setEmojiTab] = useState<"emoji" | "chars">("emoji");
   // FIX: UploadedFile now includes base64 for LinkedIn media upload
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  // FIX: restore existing media when editing a saved post
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>(() => {
+    if (!post?.mediaBase64?.length) return [];
+    return post.mediaBase64.map((b64: string, i: number) => ({
+      name: `media_${i}`,
+      type: post.mediaTypes?.[i] ?? "image/jpeg",
+      previewUrl: `data:${post.mediaTypes?.[i] ?? "image/jpeg"};base64,${b64}`,
+      size: 0,
+      base64: b64,
+    }));
+  });
   // Keep uploadedFile as alias to first file for backward compat
   const uploadedFile = uploadedFiles[0] ?? null;
   const setUploadedFile = (f: UploadedFile | null) =>
@@ -2485,7 +2497,12 @@ function EditorModal({
               <input
                 type="date"
                 value={date}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => {
+                  setDate(e.target.value);
+                  // FIX: auto-switch to Scheduled when a date is picked
+                  if (e.target.value && status === "Draft")
+                    setStatus("Scheduled");
+                }}
                 className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-1.5"
               />
               <input
@@ -2668,26 +2685,57 @@ function EditorModal({
                   onChange={(e) => {
                     const files = Array.from(e.target.files || []);
                     if (!files.length) return;
-                    // FIX: read base64 so we can upload to LinkedIn API
                     files.forEach((file) => {
                       const url = URL.createObjectURL(file);
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        const result = ev.target?.result as string;
-                        // Strip "data:image/jpeg;base64," prefix — keep raw base64
-                        const base64 = result.split(",")[1];
-                        setUploadedFiles((prev) => [
-                          ...prev,
-                          {
-                            name: file.name,
-                            type: file.type,
-                            previewUrl: url,
-                            size: file.size,
-                            base64,
-                          },
-                        ]);
-                      };
-                      reader.readAsDataURL(file);
+                      // FIX: compress images with canvas to stay under Firestore 1MB limit
+                      if (file.type.startsWith("image/")) {
+                        const img = new window.Image();
+                        img.onload = () => {
+                          const canvas = document.createElement("canvas");
+                          // Max 1200px wide — keeps quality while drastically reducing size
+                          const MAX = 1200;
+                          const ratio = Math.min(
+                            1,
+                            MAX / Math.max(img.width, img.height),
+                          );
+                          canvas.width = img.width * ratio;
+                          canvas.height = img.height * ratio;
+                          const ctx = canvas.getContext("2d")!;
+                          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                          // JPEG at 0.82 quality — ~200-400KB for typical social images
+                          const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
+                          const base64 = dataUrl.split(",")[1];
+                          setUploadedFiles((prev) => [
+                            ...prev,
+                            {
+                              name: file.name,
+                              type: "image/jpeg",
+                              previewUrl: dataUrl,
+                              size: base64.length,
+                              base64,
+                            },
+                          ]);
+                        };
+                        img.src = url;
+                      } else {
+                        // Video — read as-is (no compression)
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const result = ev.target?.result as string;
+                          const base64 = result.split(",")[1];
+                          setUploadedFiles((prev) => [
+                            ...prev,
+                            {
+                              name: file.name,
+                              type: file.type,
+                              previewUrl: url,
+                              size: file.size,
+                              base64,
+                            },
+                          ]);
+                        };
+                        reader.readAsDataURL(file);
+                      }
                     });
                     e.target.value = "";
                   }}
