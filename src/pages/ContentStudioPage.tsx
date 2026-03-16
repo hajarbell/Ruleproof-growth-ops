@@ -584,7 +584,7 @@ const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
     Archived: { light: "#f4f4f5", dark: "#1c1c20" },
   };
 
-// lifecycle stages
+// 4 lifecycle stages: Draft → Approved → Scheduled → Published
 const STAGE_DOTS: Record<PostStatus, number> = {
   Draft: 1,
   Approved: 2,
@@ -3709,6 +3709,190 @@ function EditorModal({
   );
 }
 
+// ─── FreeCell — smart editable cell for blank rows ───────────────────────────
+function FreeCell({
+  value,
+  colId,
+  members,
+  allTags,
+  onSave,
+  onDeleteTag,
+}: {
+  value: string;
+  colId: string;
+  members: WorkspaceMember[];
+  allTags: { label: string; color: string }[];
+  onSave: (val: string) => void;
+  onDeleteTag: (tag: string) => void;
+}) {
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(value);
+  const [suggestions, setSuggestions] = React.useState<
+    { label: string; type: "tag" | "member"; color?: string }[]
+  >([]);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  const handleChange = (val: string) => {
+    setDraft(val);
+    const match = val.match(/@(\w*)$/);
+    if (match) {
+      const q = match[1].toLowerCase();
+      const memberSuggs = members
+        .map((m) => ({
+          label: m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "",
+          type: "member" as const,
+          color: (m as any).color || "#6366f1",
+        }))
+        .filter((s) => s.label.toLowerCase().startsWith(q) && s.label);
+      const tagSuggs = allTags
+        .map((t) => ({ label: t.label, type: "tag" as const, color: t.color }))
+        .filter((s) => s.label.toLowerCase().startsWith(q));
+      setSuggestions(
+        memberSuggs.length ? memberSuggs.slice(0, 5) : tagSuggs.slice(0, 5),
+      );
+    } else {
+      setSuggestions([]);
+    }
+  };
+
+  const pickSuggestion = (s: { label: string; type: string }) => {
+    const newVal = draft.replace(/@\w*$/, `@${s.label} `);
+    setDraft(newVal);
+    setSuggestions([]);
+    onSave(newVal);
+    inputRef.current?.focus();
+  };
+
+  const commit = () => {
+    setEditing(false);
+    setSuggestions([]);
+    if (draft !== value) onSave(draft);
+  };
+
+  // Parse tag chips from value
+  const tagChips = allTags.filter((t) => value.includes(`@${t.label}`));
+  const memberChips = members.filter((m) => {
+    const n = m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "";
+    return n && value.includes(`@${n}`);
+  });
+  const plainText = value.replace(/@\w+/g, "").trim();
+
+  if (!editing) {
+    return (
+      <div
+        className="min-h-[22px] cursor-text flex flex-wrap gap-1 items-center group/cell"
+        onClick={() => {
+          setEditing(true);
+          setTimeout(() => inputRef.current?.focus(), 0);
+        }}
+      >
+        {tagChips.map((t) => (
+          <span
+            key={t.label}
+            className="group/tag flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
+            style={{ backgroundColor: t.color || "#6366f1" }}
+          >
+            {t.label}
+            <button
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onDeleteTag(t.label);
+              }}
+              className="opacity-0 group-hover/tag:opacity-100 transition-opacity ml-0.5 hover:text-red-200"
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </span>
+        ))}
+        {memberChips.map((m) => {
+          const name =
+            m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "";
+          return (
+            <span
+              key={m.uid}
+              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 font-medium"
+            >
+              {(m as any).photoURL && (
+                <img
+                  src={(m as any).photoURL}
+                  className="w-3 h-3 rounded-full object-cover"
+                  alt=""
+                />
+              )}
+              {name}
+            </span>
+          );
+        })}
+        {tagChips.length === 0 && memberChips.length === 0 ? (
+          <span
+            className={`text-xs ${value ? "text-foreground" : "text-muted-foreground/30"}`}
+          >
+            {value || "—"}
+          </span>
+        ) : (
+          plainText && (
+            <span className="text-[10px] text-muted-foreground/60 truncate max-w-[80px]">
+              {plainText}
+            </span>
+          )
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        ref={inputRef}
+        value={draft}
+        autoFocus
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            commit();
+          }
+          if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+            setSuggestions([]);
+          }
+        }}
+        placeholder={colId === "theme" ? "Title..." : "Type... @name or @tag"}
+        className="w-full bg-primary/5 border border-primary/40 rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-w-[80px]"
+      />
+      {suggestions.length > 0 && (
+        <div className="absolute top-full left-0 z-50 bg-card border border-border rounded-lg shadow-xl overflow-hidden min-w-[140px] mt-0.5">
+          {suggestions.map((s) => (
+            <button
+              key={s.label}
+              onMouseDown={() => pickSuggestion(s)}
+              className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-muted/50 flex items-center gap-2"
+            >
+              <span
+                className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: s.color || "#6366f1" }}
+              />
+              <span>{s.label}</span>
+              <span className="text-muted-foreground/40 text-[9px] ml-auto">
+                {s.type}
+              </span>
+            </button>
+          ))}
+          <div className="px-2.5 py-1 border-t border-border/40 text-[9px] text-muted-foreground/40">
+            ↵ to pick · Esc to cancel
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
   const { workspace, members, user } = useAuth();
@@ -3788,31 +3972,15 @@ export default function ContentStudioPage() {
             (m.email || "").toLowerCase().startsWith(mentionedName),
         );
         if (mentionedMember && mentionedMember.uid !== user?.uid) {
-          const actorFirst = (user?.displayName || "Someone").split(" ")[0];
-          const targetFirst =
-            mentionedMember.displayName?.split(" ")[0] || "them";
           await addDoc(
             collection(db, "workspaces", workspace.id, "notifications"),
             {
               type: "mention",
-              message: `💬 ${actorFirst} mentioned you in a sheet: "${value.slice(0, 60)}"`,
+              message: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
+              personalMessage: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
               actorUid: user?.uid ?? "",
               actorName: user?.displayName || "",
               targetUid: mentionedMember.uid,
-              navigateTo: "/content",
-              read: false,
-              createdAt: new Date().toISOString(),
-            },
-          );
-          // Actor-only confirmation
-          await addDoc(
-            collection(db, "workspaces", workspace.id, "notifications"),
-            {
-              type: "mention",
-              message: `💬 You mentioned ${targetFirst} in a sheet.`,
-              actorUid: user?.uid ?? "",
-              actorName: user?.displayName || "",
-              targetUid: user?.uid ?? "",
               navigateTo: "/content",
               read: false,
               createdAt: new Date().toISOString(),
@@ -3950,16 +4118,10 @@ export default function ContentStudioPage() {
         assignedMember?.displayName?.split(" ")[0] ||
         assignedMember?.email?.split("@")[0] ||
         "them";
-
-      // What the TARGET sees: "Hajar assigned X to you"
       const targetMsg = cleanComment
         ? `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you: "${cleanComment}"`
         : `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you.`;
-
-      // What the ACTOR sees: "You assigned X to Basma"
       const actorMsg = `📌 You assigned "${saved.theme || "a post"}" to ${targetFirst}.`;
-
-      // Notification for TARGET
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
@@ -3975,8 +4137,6 @@ export default function ContentStudioPage() {
           createdAt: new Date().toISOString(),
         },
       );
-
-      // Confirmation for ACTOR only
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
@@ -4516,42 +4676,56 @@ export default function ContentStudioPage() {
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {/* Existing tags — click to assign to selected free row */}
+              {/* Existing tags — click to assign, hover custom tags to delete */}
               <div className="flex flex-wrap gap-1.5">
                 {[
                   ...CONTENT_TAGS.map((t) => ({
                     label: t,
                     color: TAG_COLORS[t].match(/#[0-9a-f]+/i)?.[0] || "#6366f1",
+                    builtin: true,
                   })),
-                  ...customTags,
+                  ...customTags.map((t) => ({ ...t, builtin: false })),
                 ].map((t, i) => (
-                  <button
+                  <span
                     key={i}
-                    onClick={async () => {
-                      if (selectedFreeRowForTag !== null) {
-                        const existing = (
-                          freeRows[selectedFreeRowForTag]?.tags || ""
-                        )
-                          .split(",")
-                          .filter(Boolean);
-                        if (!existing.includes(t.label)) {
-                          await updateFreeRow(
-                            selectedFreeRowForTag,
-                            "tags",
-                            [...existing, t.label].join(","),
-                            freeRows[selectedFreeRowForTag]?.tags || "",
-                          );
-                        }
-                      }
-                    }}
-                    className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white hover:opacity-80 transition-opacity"
+                    className="group/tagpill flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white"
                     style={{ backgroundColor: t.color }}
                   >
-                    {t.label}
-                    {selectedFreeRowForTag !== null && (
-                      <span className="text-[9px] opacity-70">+ add</span>
+                    <button
+                      onClick={async () => {
+                        if (selectedFreeRowForTag !== null) {
+                          const existing = (
+                            freeRows[selectedFreeRowForTag]?.tags || ""
+                          )
+                            .split(",")
+                            .filter(Boolean);
+                          if (!existing.includes(t.label)) {
+                            await updateFreeRow(
+                              selectedFreeRowForTag,
+                              "tags",
+                              [...existing, t.label].join(","),
+                              freeRows[selectedFreeRowForTag]?.tags || "",
+                            );
+                          }
+                        }
+                      }}
+                      className="hover:opacity-80"
+                    >
+                      {t.label}
+                    </button>
+                    {!t.builtin && (
+                      <button
+                        onClick={() =>
+                          setCustomTags((p) =>
+                            p.filter((ct) => ct.label !== t.label),
+                          )
+                        }
+                        className="opacity-0 group-hover/tagpill:opacity-100 transition-opacity hover:text-red-200 ml-0.5"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
                     )}
-                  </button>
+                  </span>
                 ))}
               </div>
               <div className="border-t border-border pt-3">
@@ -4722,79 +4896,50 @@ export default function ContentStudioPage() {
               {freeRows.map((row, rowIdx) => (
                 <tr
                   key={`free-${rowIdx}`}
-                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5"
+                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5 group/freerow"
                 >
-                  {sheetCols.map((col) => (
-                    <td
-                      key={col.id}
-                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
-                    >
-                      {col.id === "tags" ? (
-                        // Tag column: show chips + click to open tag panel
-                        <div
-                          className="flex flex-wrap gap-1 min-h-[24px] cursor-pointer"
-                          onClick={() => {
-                            setSelectedFreeRowForTag(rowIdx);
-                            setShowTagPanel(true);
-                          }}
-                        >
-                          {(row[col.id] || "")
-                            .split(",")
-                            .filter(Boolean)
-                            .map((t, ti) => {
-                              const tagObj = [
-                                ...CONTENT_TAGS.map((ct) => ({
-                                  label: ct,
-                                  color: "",
-                                })),
-                                ...customTags,
-                              ].find((ct) => ct.label === t.trim());
-                              return (
-                                <span
-                                  key={ti}
-                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium text-white"
-                                  style={{
-                                    backgroundColor: tagObj?.color || "#6366f1",
-                                  }}
-                                >
-                                  {t.trim()}
-                                </span>
-                              );
-                            })}
-                          {!row[col.id] && (
-                            <span className="text-[10px] text-muted-foreground/40">
-                              + tag
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <input
+                  {sheetCols.map((col) => {
+                    const allTags = [
+                      ...CONTENT_TAGS.map((ct) => ({
+                        label: ct,
+                        color:
+                          TAG_COLORS[ct].match(/#[0-9a-f]+/i)?.[0] || "#6366f1",
+                      })),
+                      ...customTags,
+                    ];
+                    return (
+                      <td
+                        key={col.id}
+                        className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[220px]"
+                      >
+                        <FreeCell
                           value={row[col.id] || ""}
-                          onChange={(e) =>
+                          colId={col.id}
+                          members={members}
+                          allTags={allTags}
+                          onSave={(val) =>
                             updateFreeRow(
                               rowIdx,
                               col.id,
-                              e.target.value,
+                              val,
                               row[col.id] || "",
                             )
                           }
-                          placeholder={
-                            col.id === "theme"
-                              ? "Title..."
-                              : col.id === "content"
-                                ? "Write..."
-                                : "—"
-                          }
-                          className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 py-0.5"
-                          style={{
-                            color: (row[col.id] || "").includes("@")
-                              ? undefined
-                              : undefined,
+                          onDeleteTag={(tag) => {
+                            const cur = (row[col.id] || "")
+                              .replace(new RegExp(`@${tag}\\s?`, "g"), "")
+                              .trim();
+                            updateFreeRow(
+                              rowIdx,
+                              col.id,
+                              cur,
+                              row[col.id] || "",
+                            );
                           }}
                         />
-                      )}
-                    </td>
-                  ))}
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-2">
                     <button
                       onClick={async () => {
@@ -4802,7 +4947,7 @@ export default function ContentStudioPage() {
                         setFreeRows(newRows);
                         await saveFreeRows(newRows);
                       }}
-                      className="text-[10px] text-muted-foreground hover:text-destructive"
+                      className="text-[10px] text-muted-foreground hover:text-destructive opacity-0 group-hover/freerow:opacity-100 transition-opacity"
                     >
                       ✕
                     </button>
@@ -5463,10 +5608,9 @@ export default function ContentStudioPage() {
                                   style={{
                                     top,
                                     minHeight: 72,
-                                    backgroundColor:
-                                      "hsl(var(--card, 248 250 252))",
-                                    border: "1px solid rgba(99,102,241,0.12)",
-                                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                                    backgroundColor: "#ffffff",
+                                    border: "1px solid rgba(0,0,0,0.07)",
+                                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
                                   }}
                                 >
                                   <div className="p-2.5">
