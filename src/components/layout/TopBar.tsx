@@ -298,10 +298,15 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                           onClick={() => {
                             if (n.navigateTo) {
                               setBellOpen(false);
-                              navigate(n.navigateTo);
+                              navigate(
+                                n.navigateTo.replace(
+                                  "/content-studio",
+                                  "/content",
+                                ),
+                              );
                             } else if (n.postId) {
                               setBellOpen(false);
-                              navigate(`/content-studio?postId=${n.postId}`);
+                              navigate(`/content?postId=${n.postId}`);
                             }
                           }}
                         >

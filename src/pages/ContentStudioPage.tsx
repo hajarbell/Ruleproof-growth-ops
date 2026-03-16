@@ -88,7 +88,7 @@ type ContentTag =
   | "Personal"
   | "Building in Public"
   | "Promotion";
-type PostStatus = "Draft" | "Scheduled" | "Published" | "Archived";
+type PostStatus = "Draft" | "Approved" | "Scheduled" | "Published" | "Archived";
 type ViewMode = "cards" | "sheets" | "calendar";
 type VisualType = "text" | "carousel" | "infographic" | "video";
 type PreviewDevice = "desktop" | "mobile" | "tablet";
@@ -322,12 +322,14 @@ const FUNNEL_COLORS: Record<FunnelTag, string> = {
 };
 const STATUS_COLORS: Record<PostStatus, string> = {
   Draft: "bg-zinc-500/20 text-zinc-400",
+  Approved: "bg-blue-400/20 text-blue-400",
   Scheduled: "bg-indigo-500/20 text-indigo-400",
   Published: "bg-emerald-500/20 text-emerald-400",
   Archived: "bg-zinc-400/15 text-zinc-400",
 };
 const STATUS_HEX: Record<PostStatus, string> = {
   Draft: "#71717a",
+  Approved: "#60a5fa",
   Scheduled: "#6366f1",
   Published: "#10b981",
   Archived: "#a1a1aa",
@@ -575,18 +577,20 @@ function StatsStrip({ posts }: { posts: Post[] }) {
 // Status → card background colors matching reference screenshot
 const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
   {
-    Scheduled: { light: "#ede9fe", dark: "#2e1f4f" },
     Draft: { light: "#f8fafc", dark: "#1e2535" },
+    Approved: { light: "#eff6ff", dark: "#1e2d4f" },
+    Scheduled: { light: "#ede9fe", dark: "#2e1f4f" },
     Published: { light: "#f0fdf4", dark: "#0f2a1e" },
     Archived: { light: "#f4f4f5", dark: "#1c1c20" },
   };
 
-// 3 lifecycle stages: Draft → Scheduled → Published
+// lifecycle stages
 const STAGE_DOTS: Record<PostStatus, number> = {
   Draft: 1,
-  Scheduled: 2,
-  Published: 3,
-  Archived: 3,
+  Approved: 2,
+  Scheduled: 3,
+  Published: 4,
+  Archived: 4,
 };
 
 function PostCard({
@@ -758,6 +762,7 @@ function PostCard({
                     {(
                       [
                         "Draft",
+                        "Approved",
                         "Scheduled",
                         "Published",
                         "Archived",
@@ -2842,18 +2847,18 @@ function EditorModal({
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                 Status
               </p>
-              {(["Draft", "Scheduled", "Published"] as PostStatus[]).map(
-                (s) => (
-                  <button
-                    key={s}
-                    onClick={() => setStatus(s)}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium mb-1 ${status === s ? STATUS_COLORS[s] : "bg-muted/50 text-muted-foreground"}`}
-                  >
-                    {s}
-                    {status === s && <Check className="w-3 h-3" />}
-                  </button>
-                ),
-              )}
+              {(
+                ["Draft", "Approved", "Scheduled", "Published"] as PostStatus[]
+              ).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatus(s)}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium mb-1 ${status === s ? STATUS_COLORS[s] : "bg-muted/50 text-muted-foreground"}`}
+                >
+                  {s}
+                  {status === s && <Check className="w-3 h-3" />}
+                </button>
+              ))}
             </div>
 
             {/* Schedule */}
@@ -3784,34 +3789,31 @@ export default function ContentStudioPage() {
         );
         if (mentionedMember && mentionedMember.uid !== user?.uid) {
           const actorFirst = (user?.displayName || "Someone").split(" ")[0];
-          const targetMsg = `💬 ${actorFirst} mentioned you in a sheet: "${value.slice(0, 60)}"`;
-          const actorMsg = `💬 You mentioned ${mentionedMember.displayName?.split(" ")[0] || "them"} in a sheet.`;
-
-          // Notification for the mentioned member
+          const targetFirst =
+            mentionedMember.displayName?.split(" ")[0] || "them";
           await addDoc(
             collection(db, "workspaces", workspace.id, "notifications"),
             {
               type: "mention",
-              message: targetMsg,
+              message: `💬 ${actorFirst} mentioned you in a sheet: "${value.slice(0, 60)}"`,
               actorUid: user?.uid ?? "",
               actorName: user?.displayName || "",
               targetUid: mentionedMember.uid,
-              navigateTo: "/content-studio",
+              navigateTo: "/content",
               read: false,
               createdAt: new Date().toISOString(),
             },
           );
-
           // Actor-only confirmation
           await addDoc(
             collection(db, "workspaces", workspace.id, "notifications"),
             {
               type: "mention",
-              message: actorMsg,
+              message: `💬 You mentioned ${targetFirst} in a sheet.`,
               actorUid: user?.uid ?? "",
               actorName: user?.displayName || "",
               targetUid: user?.uid ?? "",
-              navigateTo: "/content-studio",
+              navigateTo: "/content",
               read: false,
               createdAt: new Date().toISOString(),
             },
@@ -3940,6 +3942,7 @@ export default function ContentStudioPage() {
       saved.assignedToUid !== user?.uid
     ) {
       playTripleChime();
+      // Strip any [SEND] markers that may have snuck in
       const cleanComment = assignComment.replace(/\n?\[SEND\]/g, "").trim();
       const actorFirst = (user?.displayName || "Admin").split(" ")[0];
       const assignedMember = members.find((m) => m.uid === saved.assignedToUid);
@@ -3948,15 +3951,15 @@ export default function ContentStudioPage() {
         assignedMember?.email?.split("@")[0] ||
         "them";
 
-      // Message the TARGET sees: "Hajar assigned X to you"
+      // What the TARGET sees: "Hajar assigned X to you"
       const targetMsg = cleanComment
         ? `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you: "${cleanComment}"`
         : `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you.`;
 
-      // Message the ACTOR sees in their own feed (separate doc, only visible to actor)
+      // What the ACTOR sees: "You assigned X to Basma"
       const actorMsg = `📌 You assigned "${saved.theme || "a post"}" to ${targetFirst}.`;
 
-      // Write notification for TARGET only
+      // Notification for TARGET
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
@@ -3964,16 +3967,16 @@ export default function ContentStudioPage() {
           message: targetMsg,
           actorUid: user?.uid ?? "",
           actorName: user?.displayName || "Admin",
-          targetUid: saved.assignedToUid, // only this person sees it
+          targetUid: saved.assignedToUid,
           postId: saved.id,
           postTheme: saved.theme,
-          navigateTo: `/content-studio?postId=${saved.id}`,
+          navigateTo: `/content?postId=${saved.id}`,
           read: false,
           createdAt: new Date().toISOString(),
         },
       );
 
-      // Write a separate actor-only confirmation (only actor sees this)
+      // Confirmation for ACTOR only
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
@@ -3981,10 +3984,10 @@ export default function ContentStudioPage() {
           message: actorMsg,
           actorUid: user?.uid ?? "",
           actorName: user?.displayName || "Admin",
-          targetUid: user?.uid ?? "", // actor sees this one
+          targetUid: user?.uid ?? "",
           postId: saved.id,
           postTheme: saved.theme,
-          navigateTo: `/content-studio?postId=${saved.id}`,
+          navigateTo: `/content?postId=${saved.id}`,
           read: false,
           createdAt: new Date().toISOString(),
         },
@@ -4101,7 +4104,9 @@ export default function ContentStudioPage() {
             }}
             className="w-full px-1 py-0.5 text-xs bg-primary/5 border border-primary/50 rounded focus:outline-none text-foreground"
           >
-            {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((s) => (
+            {(
+              ["Draft", "Approved", "Scheduled", "Published"] as PostStatus[]
+            ).map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
@@ -4307,7 +4312,14 @@ export default function ContentStudioPage() {
 
         <div className="flex gap-1.5">
           {(
-            ["All", "Draft", "Scheduled", "Published", "Archived"] as const
+            [
+              "All",
+              "Draft",
+              "Approved",
+              "Scheduled",
+              "Published",
+              "Archived",
+            ] as const
           ).map((s) => (
             <button
               key={s}
@@ -4360,7 +4372,9 @@ export default function ContentStudioPage() {
           className="flex gap-4 flex-1 overflow-x-auto pb-2"
         >
           {/* FIX: Archived removed — ArchiveColumn handles it from its own collection */}
-          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((col) => {
+          {(
+            ["Draft", "Approved", "Scheduled", "Published"] as PostStatus[]
+          ).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
             const isDragTarget = dragOverCol === col;
             return (
@@ -5449,9 +5463,10 @@ export default function ContentStudioPage() {
                                   style={{
                                     top,
                                     minHeight: 72,
-                                    backgroundColor: "var(--card, #f8fafc)",
-                                    border: "1px solid rgba(0,0,0,0.06)",
-                                    boxShadow: "0 1px 6px rgba(0,0,0,0.07)",
+                                    backgroundColor:
+                                      "hsl(var(--card, 248 250 252))",
+                                    border: "1px solid rgba(99,102,241,0.12)",
+                                    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
                                   }}
                                 >
                                   <div className="p-2.5">
@@ -5473,7 +5488,7 @@ export default function ContentStudioPage() {
                                       <MoreHorizontal className="w-3 h-3 text-muted-foreground/40" />
                                     </div>
                                     {/* Title */}
-                                    <p className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2 mb-2">
+                                    <p className="text-[11px] font-semibold text-gray-800 leading-snug line-clamp-2 mb-2">
                                       {p.theme ||
                                         p.content.slice(0, 40) ||
                                         "Untitled"}
@@ -5498,17 +5513,17 @@ export default function ContentStudioPage() {
                                       {(p.mediaBase64?.length ?? 0) > 0 && (
                                         <ImageIcon className="w-2.5 h-2.5 text-muted-foreground" />
                                       )}
-                                      {/* Avatars right — w-7 h-7 so they're actually visible */}
+                                      {/* Avatars right */}
                                       <div className="ml-auto flex items-center">
                                         {p.accountAvatarUrl ? (
                                           <img
                                             src={p.accountAvatarUrl}
-                                            className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-[#252d3d]"
+                                            className="w-5 h-5 rounded-full object-cover ring-1 ring-white"
                                             alt=""
                                           />
                                         ) : (
                                           <div
-                                            className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#252d3d]"
+                                            className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white"
                                             style={{
                                               backgroundColor: p.accountColor,
                                             }}
@@ -5520,12 +5535,12 @@ export default function ContentStudioPage() {
                                           (p.assignedAvatarUrl ? (
                                             <img
                                               src={p.assignedAvatarUrl}
-                                              className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-[#252d3d] -ml-2"
+                                              className="w-5 h-5 rounded-full object-cover ring-1 ring-white -ml-1.5"
                                               alt=""
                                             />
                                           ) : (
                                             <div
-                                              className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#252d3d] -ml-2"
+                                              className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white -ml-1.5"
                                               style={{
                                                 backgroundColor:
                                                   p.assignedColor || "#6366f1",
