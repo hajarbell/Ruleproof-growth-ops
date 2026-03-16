@@ -608,7 +608,9 @@ function PostCard({
   const [isDark, setIsDark] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [countdown, setCountdown] = useState("");
-  const [cardExpanded, setCardExpanded] = useState<"media" | "comments" | "text" | null>(null);
+  const [cardExpanded, setCardExpanded] = useState<
+    "media" | "comments" | "text" | null
+  >(null);
 
   useEffect(() => {
     if (post.status !== "Scheduled" || !post.scheduledDate) return;
@@ -713,7 +715,10 @@ function PostCard({
 
       <div className="p-4 pl-5">
         {/* Top: title + menu */}
-        <div className="flex items-start justify-between gap-2 mb-2" onClick={onClick}>
+        <div
+          className="flex items-start justify-between gap-2 mb-2"
+          onClick={onClick}
+        >
           <h4
             className="text-[14px] font-bold leading-snug flex-1 line-clamp-2"
             style={{ color: textColor }}
@@ -736,40 +741,96 @@ function PostCard({
                 className="absolute right-0 top-8 z-50 rounded-2xl border shadow-2xl overflow-hidden w-48"
                 style={{
                   backgroundColor: isDark ? "#1a2235" : "#ffffff",
-                  borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+                  borderColor: isDark
+                    ? "rgba(255,255,255,0.08)"
+                    : "rgba(0,0,0,0.06)",
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="px-3 pt-3 pb-1.5">
-                  <p className="text-[9px] font-bold uppercase tracking-widest mb-1.5" style={{ color: isDark ? "#475569" : "#94a3b8" }}>Move to</p>
+                  <p
+                    className="text-[9px] font-bold uppercase tracking-widest mb-1.5"
+                    style={{ color: isDark ? "#475569" : "#94a3b8" }}
+                  >
+                    Move to
+                  </p>
                   <div className="grid grid-cols-2 gap-1">
-                    {(["Draft", "Scheduled", "Published", "Archived"] as PostStatus[]).filter((s) => s !== post.status).map((s) => (
-                      <button key={s} onClick={() => { onStatusChange?.(post.id, s); setShowMenu(false); }}
-                        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:opacity-80"
-                        style={{ backgroundColor: STATUS_HEX[s] + "18", color: STATUS_HEX[s] }}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: STATUS_HEX[s] }} />
-                        {s}
-                      </button>
-                    ))}
+                    {(
+                      [
+                        "Draft",
+                        "Scheduled",
+                        "Published",
+                        "Archived",
+                      ] as PostStatus[]
+                    )
+                      .filter((s) => s !== post.status)
+                      .map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => {
+                            onStatusChange?.(post.id, s);
+                            setShowMenu(false);
+                          }}
+                          className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:opacity-80"
+                          style={{
+                            backgroundColor: STATUS_HEX[s] + "18",
+                            color: STATUS_HEX[s],
+                          }}
+                        >
+                          <span
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: STATUS_HEX[s] }}
+                          />
+                          {s}
+                        </button>
+                      ))}
                   </div>
                 </div>
-                <div className="mx-3 my-1.5 h-px" style={{ backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }} />
+                <div
+                  className="mx-3 my-1.5 h-px"
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)",
+                  }}
+                />
                 <div className="px-2 pb-2 space-y-0.5">
-                  <button onClick={(e) => { e.stopPropagation(); setShowMenu(false); onClick(); }}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      onClick();
+                    }}
                     className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-black/5 dark:hover:bg-white/5 flex items-center gap-2 transition-colors font-medium"
                     style={{ color: isDark ? "#e2e8f0" : "#334155" }}
                   >
                     <span className="text-base">✏️</span> Edit post
                   </button>
                   {onArchive && (
-                    <button onClick={(e) => { e.stopPropagation(); onArchive(post.id); setShowMenu(false); }}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onArchive(post.id);
+                        setShowMenu(false);
+                      }}
                       className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 transition-colors font-medium text-amber-600 dark:text-amber-400"
                     >
                       <span className="text-base">🗄️</span> Archive
                     </button>
                   )}
-                  <button onClick={(e) => { e.stopPropagation(); if (window.confirm("Permanently delete this post? This cannot be undone.")) { if ((window as any).__deletePost) (window as any).__deletePost(post.id); } setShowMenu(false); }}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (
+                        window.confirm(
+                          "Permanently delete this post? This cannot be undone.",
+                        )
+                      ) {
+                        if ((window as any).__deletePost)
+                          (window as any).__deletePost(post.id);
+                      }
+                      setShowMenu(false);
+                    }}
                     className="w-full text-left px-3 py-2 text-[12px] rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2 transition-colors font-medium text-red-500"
                   >
                     <span className="text-base">🗑️</span> Delete forever
@@ -784,12 +845,17 @@ function PostCard({
         {((post.tags?.length ?? 0) > 0 || post.funnel) && (
           <div className="flex flex-wrap gap-1 mb-2" onClick={onClick}>
             {(post.tags || []).slice(0, 2).map((t) => (
-              <span key={t} className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${TAG_COLORS[t as ContentTag] || "bg-muted text-muted-foreground border-border"}`}>
+              <span
+                key={t}
+                className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${TAG_COLORS[t as ContentTag] || "bg-muted text-muted-foreground border-border"}`}
+              >
                 {t}
               </span>
             ))}
             {post.funnel && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${FUNNEL_COLORS[post.funnel]}`}>
+              <span
+                className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${FUNNEL_COLORS[post.funnel]}`}
+              >
                 {post.funnel}
               </span>
             )}
@@ -798,7 +864,11 @@ function PostCard({
 
         {/* Content preview — 2 lines */}
         {post.content && (
-          <p className="text-[12px] leading-relaxed mb-3 line-clamp-2" style={{ color: subTextColor }} onClick={onClick}>
+          <p
+            className="text-[12px] leading-relaxed mb-3 line-clamp-2"
+            style={{ color: subTextColor }}
+            onClick={onClick}
+          >
             {post.content}
           </p>
         )}
@@ -806,8 +876,17 @@ function PostCard({
         {/* Progress lines */}
         <div className="flex gap-1 mb-3" onClick={onClick}>
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-[3px] rounded-full flex-1 transition-all"
-              style={{ backgroundColor: i < dots ? STATUS_HEX[post.status] : isLightCard ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.10)" }}
+            <div
+              key={i}
+              className="h-[3px] rounded-full flex-1 transition-all"
+              style={{
+                backgroundColor:
+                  i < dots
+                    ? STATUS_HEX[post.status]
+                    : isLightCard
+                      ? "rgba(0,0,0,0.10)"
+                      : "rgba(255,255,255,0.10)",
+              }}
             />
           ))}
         </div>
@@ -815,30 +894,61 @@ function PostCard({
         {/* Countdown */}
         {post.status === "Scheduled" && countdown && (
           <div className="flex items-center gap-1 mb-2" onClick={onClick}>
-            <Clock className="w-3 h-3 flex-shrink-0" style={{ color: STATUS_HEX["Scheduled"] }} />
-            <span className="text-[10px] font-semibold" style={{ color: STATUS_HEX["Scheduled"] }}>{countdown}</span>
+            <Clock
+              className="w-3 h-3 flex-shrink-0"
+              style={{ color: STATUS_HEX["Scheduled"] }}
+            />
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: STATUS_HEX["Scheduled"] }}
+            >
+              {countdown}
+            </span>
           </div>
         )}
 
         {/* Bottom row: account + member avatars + icon actions */}
         <div className="flex items-center gap-2">
           {/* Account avatar */}
-          <div className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden shadow-sm" style={{ border: `2px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}` }} onClick={onClick}>
+          <div
+            className="w-7 h-7 rounded-full flex-shrink-0 overflow-hidden shadow-sm"
+            style={{
+              border: `2px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.08)"}`,
+            }}
+            onClick={onClick}
+          >
             {post.accountAvatarUrl ? (
-              <img src={post.accountAvatarUrl} className="w-full h-full object-cover" alt="" />
+              <img
+                src={post.accountAvatarUrl}
+                className="w-full h-full object-cover"
+                alt=""
+              />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-white" style={{ backgroundColor: post.accountColor || "#6366f1" }}>
+              <div
+                className="w-full h-full flex items-center justify-center text-[10px] font-bold text-white"
+                style={{ backgroundColor: post.accountColor || "#6366f1" }}
+              >
                 {post.accountAvatar}
               </div>
             )}
           </div>
           {/* Assigned member avatar */}
           {post.assignedAvatar && (
-            <div className="w-6 h-6 rounded-full flex-shrink-0 overflow-hidden -ml-2 ring-1 ring-white/30" style={{ backgroundColor: post.assignedColor || "#6366f1" }} onClick={onClick}>
+            <div
+              className="w-6 h-6 rounded-full flex-shrink-0 overflow-hidden -ml-2 ring-1 ring-white/30"
+              style={{ backgroundColor: post.assignedColor || "#6366f1" }}
+              onClick={onClick}
+            >
               {post.assignedAvatarUrl ? (
-                <img src={post.assignedAvatarUrl} className="w-full h-full object-cover" alt="" />
+                <img
+                  src={post.assignedAvatarUrl}
+                  className="w-full h-full object-cover"
+                  alt=""
+                />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">{post.assignedAvatar}</div>
+                <div className="w-full h-full flex items-center justify-center text-[9px] font-bold text-white">
+                  {post.assignedAvatar}
+                </div>
               )}
             </div>
           )}
@@ -850,7 +960,10 @@ function PostCard({
             {/* Media icon */}
             {(post.mediaBase64?.length ?? 0) > 0 && (
               <button
-                onClick={(e) => { e.stopPropagation(); setCardExpanded(cardExpanded === "media" ? null : "media"); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardExpanded(cardExpanded === "media" ? null : "media");
+                }}
                 className={`p-1 rounded-lg transition-colors ${cardExpanded === "media" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
                 title="View media"
               >
@@ -860,17 +973,27 @@ function PostCard({
             {/* Comments icon */}
             {(post.comments?.filter((c: any) => c.text).length ?? 0) > 0 && (
               <button
-                onClick={(e) => { e.stopPropagation(); setCardExpanded(cardExpanded === "comments" ? null : "comments"); }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardExpanded(
+                    cardExpanded === "comments" ? null : "comments",
+                  );
+                }}
                 className={`p-1 rounded-lg transition-colors flex items-center gap-0.5 ${cardExpanded === "comments" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
                 title="View comments"
               >
                 <MessageSquare className="w-3.5 h-3.5" />
-                <span className="text-[9px]">{post.comments.filter((c: any) => c.text).length}</span>
+                <span className="text-[9px]">
+                  {post.comments.filter((c: any) => c.text).length}
+                </span>
               </button>
             )}
             {/* Full text icon */}
             <button
-              onClick={(e) => { e.stopPropagation(); setCardExpanded(cardExpanded === "text" ? null : "text"); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setCardExpanded(cardExpanded === "text" ? null : "text");
+              }}
               className={`p-1 rounded-lg transition-colors ${cardExpanded === "text" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"}`}
               title="Full text"
             >
@@ -889,7 +1012,14 @@ function PostCard({
               alt=""
             />
             {post.mediaBase64!.length > 1 && (
-              <div className="px-2 py-1 text-[10px] text-muted-foreground" style={{ backgroundColor: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)" }}>
+              <div
+                className="px-2 py-1 text-[10px] text-muted-foreground"
+                style={{
+                  backgroundColor: isDark
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(0,0,0,0.04)",
+                }}
+              >
                 +{post.mediaBase64!.length - 1} more
               </div>
             )}
@@ -897,16 +1027,30 @@ function PostCard({
         )}
         {cardExpanded === "comments" && (
           <div className="mt-2 space-y-1">
-            {post.comments.filter((c: any) => c.text).map((c: any, i: number) => (
-              <div key={c.id} className="text-[10px] px-2 py-1 rounded-lg" style={{ backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)", color: subTextColor }}>
-                {i + 1}. {c.text}
-              </div>
-            ))}
+            {post.comments
+              .filter((c: any) => c.text)
+              .map((c: any, i: number) => (
+                <div
+                  key={c.id}
+                  className="text-[10px] px-2 py-1 rounded-lg"
+                  style={{
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.05)"
+                      : "rgba(0,0,0,0.04)",
+                    color: subTextColor,
+                  }}
+                >
+                  {i + 1}. {c.text}
+                </div>
+              ))}
           </div>
         )}
         {cardExpanded === "text" && (
           <div className="mt-2">
-            <p className="text-[11px] leading-relaxed whitespace-pre-line" style={{ color: subTextColor }}>
+            <p
+              className="text-[11px] leading-relaxed whitespace-pre-line"
+              style={{ color: subTextColor }}
+            >
               {post.content}
             </p>
           </div>
@@ -981,12 +1125,24 @@ function ArchiveColumn({
       }}
     >
       <div className="flex items-center gap-2 px-1">
-        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_HEX.Archived }} />
+        <span
+          className="w-2 h-2 rounded-full"
+          style={{ backgroundColor: STATUS_HEX.Archived }}
+        />
         <span className="text-sm font-semibold text-foreground">Archived</span>
-        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">{posts.length}</span>
+        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+          {posts.length}
+        </span>
         {posts.length > 0 && onDeleteAll && (
           <button
-            onClick={() => { if (window.confirm(`Permanently delete all ${posts.length} archived posts? This cannot be undone.`)) onDeleteAll(); }}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Permanently delete all ${posts.length} archived posts? This cannot be undone.`,
+                )
+              )
+                onDeleteAll();
+            }}
             className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
           >
             <Trash2 className="w-3 h-3" /> Delete all
@@ -3593,19 +3749,30 @@ export default function ContentStudioPage() {
   // Load freeRows from Firestore
   useEffect(() => {
     if (!workspace?.id) return;
-    const unsub = onSnapshot(doc(db, "workspaces", workspace.id, "sheetData", "freeRows"), (snap) => {
-      if (snap.exists()) setFreeRows(snap.data().rows ?? []);
-    });
+    const unsub = onSnapshot(
+      doc(db, "workspaces", workspace.id, "sheetData", "freeRows"),
+      (snap) => {
+        if (snap.exists()) setFreeRows(snap.data().rows ?? []);
+      },
+    );
     return unsub;
   }, [workspace?.id]);
 
   const saveFreeRows = async (rows: Record<string, string>[]) => {
     if (!workspace?.id) return;
     const { setDoc: setFireDoc } = await import("firebase/firestore");
-    await setFireDoc(doc(db, "workspaces", workspace.id, "sheetData", "freeRows"), { rows });
+    await setFireDoc(
+      doc(db, "workspaces", workspace.id, "sheetData", "freeRows"),
+      { rows },
+    );
   };
 
-  const updateFreeRow = async (rowIdx: number, colId: string, value: string, prevValue: string) => {
+  const updateFreeRow = async (
+    rowIdx: number,
+    colId: string,
+    value: string,
+    prevValue: string,
+  ) => {
     const newRows = [...freeRows];
     newRows[rowIdx] = { ...newRows[rowIdx], [colId]: value };
     setFreeRows(newRows);
@@ -3613,27 +3780,31 @@ export default function ContentStudioPage() {
 
     // @mention detection — fire notification if new @name typed
     const mentionMatch = value.match(/@(\w+)/g);
-    const prevMentions = (prevValue || "").match(/@(\w+)/g) || [];
+    const prevMentions: string[] = (prevValue || "").match(/@(\w+)/g) || [];
     if (mentionMatch && workspace) {
       for (const mention of mentionMatch) {
         if (prevMentions.includes(mention)) continue;
         const mentionedName = mention.slice(1).toLowerCase();
-        const mentionedMember = members.find((m) =>
-          (m.displayName || "").toLowerCase().startsWith(mentionedName) ||
-          (m.email || "").toLowerCase().startsWith(mentionedName)
+        const mentionedMember = members.find(
+          (m) =>
+            (m.displayName || "").toLowerCase().startsWith(mentionedName) ||
+            (m.email || "").toLowerCase().startsWith(mentionedName),
         );
         if (mentionedMember && mentionedMember.uid !== user?.uid) {
-          await addDoc(collection(db, "workspaces", workspace.id, "notifications"), {
-            type: "mention",
-            message: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
-            personalMessage: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
-            actorUid: user?.uid ?? "",
-            actorName: user?.displayName || "",
-            targetUid: mentionedMember.uid,
-            navigateTo: "/content-studio",
-            read: false,
-            createdAt: new Date().toISOString(),
-          });
+          await addDoc(
+            collection(db, "workspaces", workspace.id, "notifications"),
+            {
+              type: "mention",
+              message: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
+              personalMessage: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
+              actorUid: user?.uid ?? "",
+              actorName: user?.displayName || "",
+              targetUid: mentionedMember.uid,
+              navigateTo: "/content-studio",
+              read: false,
+              createdAt: new Date().toISOString(),
+            },
+          );
         }
       }
     }
@@ -3645,7 +3816,9 @@ export default function ContentStudioPage() {
   const [showTagPanel, setShowTagPanel] = useState(false);
   const [newTagLabel, setNewTagLabel] = useState("");
   const [newTagColor, setNewTagColor] = useState("#6366f1");
-  const [selectedFreeRowForTag, setSelectedFreeRowForTag] = useState<number | null>(null);
+  const [selectedFreeRowForTag, setSelectedFreeRowForTag] = useState<
+    number | null
+  >(null);
   const TAG_PALETTE = [
     "#6366f1",
     "#10b981",
@@ -3828,10 +4001,12 @@ export default function ContentStudioPage() {
   const deleteAllArchived = async () => {
     if (!workspace) return;
     const batch = archivedPosts.map((p) =>
-      deleteDoc(doc(db, "workspaces", workspace.id, "archivedPosts", p.id))
+      deleteDoc(doc(db, "workspaces", workspace.id, "archivedPosts", p.id)),
     );
     await Promise.all(batch);
   };
+
+  const deletePost = async (id: string) => {
     if (!workspace) return;
     await deleteDoc(doc(db, "workspaces", workspace.id, "contentPosts", id));
   };
@@ -4281,16 +4456,28 @@ export default function ContentStudioPage() {
               {/* Existing tags — click to assign to selected free row */}
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  ...CONTENT_TAGS.map((t) => ({ label: t, color: TAG_COLORS[t].match(/#[0-9a-f]+/i)?.[0] || "#6366f1" })),
+                  ...CONTENT_TAGS.map((t) => ({
+                    label: t,
+                    color: TAG_COLORS[t].match(/#[0-9a-f]+/i)?.[0] || "#6366f1",
+                  })),
                   ...customTags,
                 ].map((t, i) => (
                   <button
                     key={i}
                     onClick={async () => {
                       if (selectedFreeRowForTag !== null) {
-                        const existing = (freeRows[selectedFreeRowForTag]?.tags || "").split(",").filter(Boolean);
+                        const existing = (
+                          freeRows[selectedFreeRowForTag]?.tags || ""
+                        )
+                          .split(",")
+                          .filter(Boolean);
                         if (!existing.includes(t.label)) {
-                          await updateFreeRow(selectedFreeRowForTag, "tags", [...existing, t.label].join(","), freeRows[selectedFreeRowForTag]?.tags || "");
+                          await updateFreeRow(
+                            selectedFreeRowForTag,
+                            "tags",
+                            [...existing, t.label].join(","),
+                            freeRows[selectedFreeRowForTag]?.tags || "",
+                          );
                         }
                       }
                     }}
@@ -4298,7 +4485,9 @@ export default function ContentStudioPage() {
                     style={{ backgroundColor: t.color }}
                   >
                     {t.label}
-                    {selectedFreeRowForTag !== null && <span className="text-[9px] opacity-70">+ add</span>}
+                    {selectedFreeRowForTag !== null && (
+                      <span className="text-[9px] opacity-70">+ add</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -4468,38 +4657,92 @@ export default function ContentStudioPage() {
               ))}
               {/* Freeform rows — saved to Firestore */}
               {freeRows.map((row, rowIdx) => (
-                <tr key={`free-${rowIdx}`} className="border-b border-border/40 hover:bg-muted/20 bg-muted/5">
+                <tr
+                  key={`free-${rowIdx}`}
+                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5"
+                >
                   {sheetCols.map((col) => (
-                    <td key={col.id} className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]">
+                    <td
+                      key={col.id}
+                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
+                    >
                       {col.id === "tags" ? (
                         // Tag column: show chips + click to open tag panel
-                        <div className="flex flex-wrap gap-1 min-h-[24px] cursor-pointer"
-                          onClick={() => { setSelectedFreeRowForTag(rowIdx); setShowTagPanel(true); }}>
-                          {(row[col.id] || "").split(",").filter(Boolean).map((t, ti) => {
-                            const tagObj = [...CONTENT_TAGS.map(ct => ({ label: ct, color: "" })), ...customTags].find(ct => ct.label === t.trim());
-                            return (
-                              <span key={ti} className="text-[10px] px-2 py-0.5 rounded-full font-medium text-white"
-                                style={{ backgroundColor: tagObj?.color || "#6366f1" }}>
-                                {t.trim()}
-                              </span>
-                            );
-                          })}
-                          {!(row[col.id]) && <span className="text-[10px] text-muted-foreground/40">+ tag</span>}
+                        <div
+                          className="flex flex-wrap gap-1 min-h-[24px] cursor-pointer"
+                          onClick={() => {
+                            setSelectedFreeRowForTag(rowIdx);
+                            setShowTagPanel(true);
+                          }}
+                        >
+                          {(row[col.id] || "")
+                            .split(",")
+                            .filter(Boolean)
+                            .map((t, ti) => {
+                              const tagObj = [
+                                ...CONTENT_TAGS.map((ct) => ({
+                                  label: ct,
+                                  color: "",
+                                })),
+                                ...customTags,
+                              ].find((ct) => ct.label === t.trim());
+                              return (
+                                <span
+                                  key={ti}
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium text-white"
+                                  style={{
+                                    backgroundColor: tagObj?.color || "#6366f1",
+                                  }}
+                                >
+                                  {t.trim()}
+                                </span>
+                              );
+                            })}
+                          {!row[col.id] && (
+                            <span className="text-[10px] text-muted-foreground/40">
+                              + tag
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <input
                           value={row[col.id] || ""}
-                          onChange={(e) => updateFreeRow(rowIdx, col.id, e.target.value, row[col.id] || "")}
-                          placeholder={col.id === "theme" ? "Title..." : col.id === "content" ? "Write..." : "—"}
+                          onChange={(e) =>
+                            updateFreeRow(
+                              rowIdx,
+                              col.id,
+                              e.target.value,
+                              row[col.id] || "",
+                            )
+                          }
+                          placeholder={
+                            col.id === "theme"
+                              ? "Title..."
+                              : col.id === "content"
+                                ? "Write..."
+                                : "—"
+                          }
                           className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 py-0.5"
-                          style={{ color: (row[col.id] || "").includes("@") ? undefined : undefined }}
+                          style={{
+                            color: (row[col.id] || "").includes("@")
+                              ? undefined
+                              : undefined,
+                          }}
                         />
                       )}
                     </td>
                   ))}
                   <td className="px-3 py-2">
-                    <button onClick={async () => { const newRows = freeRows.filter((_, i) => i !== rowIdx); setFreeRows(newRows); await saveFreeRows(newRows); }}
-                      className="text-[10px] text-muted-foreground hover:text-destructive">✕</button>
+                    <button
+                      onClick={async () => {
+                        const newRows = freeRows.filter((_, i) => i !== rowIdx);
+                        setFreeRows(newRows);
+                        await saveFreeRows(newRows);
+                      }}
+                      className="text-[10px] text-muted-foreground hover:text-destructive"
+                    >
+                      ✕
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -4507,7 +4750,11 @@ export default function ContentStudioPage() {
                 <td colSpan={sheetCols.length + 1} className="px-3 py-2">
                   <div className="flex items-center gap-3">
                     <button
-                      onClick={async () => { const newRows = [...freeRows, {}]; setFreeRows(newRows); await saveFreeRows(newRows); }}
+                      onClick={async () => {
+                        const newRows = [...freeRows, {}];
+                        setFreeRows(newRows);
+                        await saveFreeRows(newRows);
+                      }}
                       className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted/50"
                     >
                       <Plus className="w-3 h-3" />
@@ -4821,11 +5068,19 @@ export default function ContentStudioPage() {
                                     key={p.id}
                                     draggable
                                     onDragStart={() => setDragging(p.id)}
-                                    onDragEnd={() => { setDragging(null); setDragOver(null); }}
-                                    onClick={() => setExpandedCard(expandedCard === p.id ? null : p.id)}
+                                    onDragEnd={() => {
+                                      setDragging(null);
+                                      setDragOver(null);
+                                    }}
+                                    onClick={() =>
+                                      setExpandedCard(
+                                        expandedCard === p.id ? null : p.id,
+                                      )
+                                    }
                                     className="mb-1 rounded-lg px-1.5 py-1 cursor-grab active:cursor-grabbing border text-left w-full"
                                     style={{
-                                      backgroundColor: p.cardColor || `${p.accountColor}15`,
+                                      backgroundColor:
+                                        p.cardColor || `${p.accountColor}15`,
                                       borderColor: `${p.accountColor}40`,
                                       borderLeftWidth: "3px",
                                       borderLeftColor: p.accountColor,
@@ -4833,45 +5088,96 @@ export default function ContentStudioPage() {
                                   >
                                     <div className="flex items-center justify-between gap-1">
                                       <span className="text-[9px] font-semibold text-foreground truncate flex-1">
-                                        {p.scheduledTime} · {p.theme || p.content.slice(0, 18)}
+                                        {p.scheduledTime} ·{" "}
+                                        {p.theme || p.content.slice(0, 18)}
                                       </span>
                                       {/* Member avatars */}
                                       <div className="flex -space-x-1 flex-shrink-0">
                                         {p.accountAvatarUrl ? (
-                                          <img src={p.accountAvatarUrl} className="w-4 h-4 rounded-full object-cover ring-1 ring-white/30" alt="" />
+                                          <img
+                                            src={p.accountAvatarUrl}
+                                            className="w-4 h-4 rounded-full object-cover ring-1 ring-white/30"
+                                            alt=""
+                                          />
                                         ) : (
-                                          <div className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white/30" style={{ backgroundColor: p.accountColor || "#6366f1" }}>
+                                          <div
+                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white/30"
+                                            style={{
+                                              backgroundColor:
+                                                p.accountColor || "#6366f1",
+                                            }}
+                                          >
                                             {p.accountAvatar}
                                           </div>
                                         )}
-                                        {p.assignedAvatar && (
-                                          p.assignedAvatarUrl ? (
-                                            <img src={p.assignedAvatarUrl} className="w-4 h-4 rounded-full object-cover ring-1 ring-white/30" alt="" />
+                                        {p.assignedAvatar &&
+                                          (p.assignedAvatarUrl ? (
+                                            <img
+                                              src={p.assignedAvatarUrl}
+                                              className="w-4 h-4 rounded-full object-cover ring-1 ring-white/30"
+                                              alt=""
+                                            />
                                           ) : (
-                                            <div className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white/30" style={{ backgroundColor: p.assignedColor || "#8b5cf6" }}>
+                                            <div
+                                              className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white/30"
+                                              style={{
+                                                backgroundColor:
+                                                  p.assignedColor || "#8b5cf6",
+                                              }}
+                                            >
                                               {p.assignedAvatar}
                                             </div>
-                                          )
-                                        )}
+                                          ))}
                                       </div>
                                     </div>
                                     {expandedCard === p.id && (
                                       <div className="mt-1 space-y-1">
-                                        <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-3">{p.content}</p>
+                                        <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-3">
+                                          {p.content}
+                                        </p>
                                         {(p.mediaBase64?.length ?? 0) > 0 && (
-                                          <img src={`data:${p.mediaTypes?.[0] ?? "image/jpeg"};base64,${p.mediaBase64![0]}`}
-                                            className="w-full rounded object-cover" style={{ maxHeight: 60 }} alt="" />
+                                          <img
+                                            src={`data:${p.mediaTypes?.[0] ?? "image/jpeg"};base64,${p.mediaBase64![0]}`}
+                                            className="w-full rounded object-cover"
+                                            style={{ maxHeight: 60 }}
+                                            alt=""
+                                          />
                                         )}
-                                        {p.comments?.filter((c: any) => c.text).length > 0 && (
+                                        {p.comments?.filter((c: any) => c.text)
+                                          .length > 0 && (
                                           <div className="space-y-0.5">
-                                            {p.comments.filter((c: any) => c.text).slice(0, 2).map((c: any, ci: number) => (
-                                              <p key={c.id} className="text-[9px] text-muted-foreground">{ci + 1}. {c.text}</p>
-                                            ))}
+                                            {p.comments
+                                              .filter((c: any) => c.text)
+                                              .slice(0, 2)
+                                              .map((c: any, ci: number) => (
+                                                <p
+                                                  key={c.id}
+                                                  className="text-[9px] text-muted-foreground"
+                                                >
+                                                  {ci + 1}. {c.text}
+                                                </p>
+                                              ))}
                                           </div>
                                         )}
                                         <div className="flex gap-2">
-                                          <button onClick={(e) => { e.stopPropagation(); setEditing(p); }} className="text-[9px] text-primary hover:underline">Edit</button>
-                                          <a href={buildGCalUrl(p)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[9px] text-emerald-400 hover:underline">📅 GCal</a>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setEditing(p);
+                                            }}
+                                            className="text-[9px] text-primary hover:underline"
+                                          >
+                                            Edit
+                                          </button>
+                                          <a
+                                            href={buildGCalUrl(p)}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="text-[9px] text-emerald-400 hover:underline"
+                                          >
+                                            📅 GCal
+                                          </a>
                                         </div>
                                       </div>
                                     )}
@@ -4889,11 +5195,16 @@ export default function ContentStudioPage() {
                                       key={ev.id}
                                       initial={{ opacity: 0, y: 2 }}
                                       animate={{ opacity: 1, y: 0 }}
-                                      onClick={(e) => { e.stopPropagation(); setEditingEvent(ev); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingEvent(ev);
+                                      }}
                                       className="mb-1 rounded-full overflow-hidden cursor-pointer hover:opacity-90 transition-all flex items-center gap-1.5 px-2 py-1"
                                       style={{ backgroundColor: ec.hex }}
                                     >
-                                      <p className="text-[9px] font-bold text-white truncate flex-1">{ev.title}</p>
+                                      <p className="text-[9px] font-bold text-white truncate flex-1">
+                                        {ev.title}
+                                      </p>
                                       {ev.assignedAvatar && (
                                         <div className="w-3.5 h-3.5 rounded-full bg-white/30 flex items-center justify-center text-[6px] font-bold text-white flex-shrink-0">
                                           {ev.assignedAvatar}
@@ -5078,8 +5389,13 @@ export default function ContentStudioPage() {
                                   key={p.id}
                                   draggable
                                   onDragStart={() => setDragging(p.id)}
-                                  onDragEnd={() => { setDragging(null); setDragOver(null); }}
-                                  onClick={() => setExpandedCard(isExpanded ? null : p.id)}
+                                  onDragEnd={() => {
+                                    setDragging(null);
+                                    setDragOver(null);
+                                  }}
+                                  onClick={() =>
+                                    setExpandedCard(isExpanded ? null : p.id)
+                                  }
                                   className="absolute left-1 right-1 rounded-xl cursor-pointer hover:shadow-lg transition-all z-10 overflow-hidden"
                                   style={{
                                     top,
@@ -5093,11 +5409,15 @@ export default function ContentStudioPage() {
                                     {/* Tag pill + menu */}
                                     <div className="flex items-center justify-between mb-1.5">
                                       {firstTag ? (
-                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold border ${TAG_COLORS[firstTag as ContentTag] || "bg-muted text-muted-foreground border-border"}`}>
+                                        <span
+                                          className={`text-[9px] px-2 py-0.5 rounded-full font-semibold border ${TAG_COLORS[firstTag as ContentTag] || "bg-muted text-muted-foreground border-border"}`}
+                                        >
                                           {firstTag}
                                         </span>
                                       ) : (
-                                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${FUNNEL_COLORS[p.funnel] || ""}`}>
+                                        <span
+                                          className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${FUNNEL_COLORS[p.funnel] || ""}`}
+                                        >
                                           {p.funnel}
                                         </span>
                                       )}
@@ -5105,17 +5425,25 @@ export default function ContentStudioPage() {
                                     </div>
                                     {/* Title */}
                                     <p className="text-[11px] font-semibold text-gray-800 leading-snug line-clamp-2 mb-2">
-                                      {p.theme || p.content.slice(0, 40) || "Untitled"}
+                                      {p.theme ||
+                                        p.content.slice(0, 40) ||
+                                        "Untitled"}
                                     </p>
                                     {/* Bottom row: date + icons + avatars */}
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
-                                        <Clock className="w-2.5 h-2.5" />{p.scheduledTime}
+                                        <Clock className="w-2.5 h-2.5" />
+                                        {p.scheduledTime}
                                       </span>
-                                      {(p.comments?.filter((c: any) => c.text).length ?? 0) > 0 && (
+                                      {(p.comments?.filter((c: any) => c.text)
+                                        .length ?? 0) > 0 && (
                                         <span className="text-[9px] text-muted-foreground flex items-center gap-0.5">
                                           <MessageSquare className="w-2.5 h-2.5" />
-                                          {p.comments.filter((c: any) => c.text).length}
+                                          {
+                                            p.comments.filter(
+                                              (c: any) => c.text,
+                                            ).length
+                                          }
                                         </span>
                                       )}
                                       {(p.mediaBase64?.length ?? 0) > 0 && (
@@ -5124,39 +5452,93 @@ export default function ContentStudioPage() {
                                       {/* Avatars right */}
                                       <div className="ml-auto flex items-center">
                                         {p.accountAvatarUrl ? (
-                                          <img src={p.accountAvatarUrl} className="w-5 h-5 rounded-full object-cover ring-1 ring-white" alt="" />
+                                          <img
+                                            src={p.accountAvatarUrl}
+                                            className="w-5 h-5 rounded-full object-cover ring-1 ring-white"
+                                            alt=""
+                                          />
                                         ) : (
-                                          <div className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white" style={{ backgroundColor: p.accountColor }}>{p.accountAvatar}</div>
+                                          <div
+                                            className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white"
+                                            style={{
+                                              backgroundColor: p.accountColor,
+                                            }}
+                                          >
+                                            {p.accountAvatar}
+                                          </div>
                                         )}
-                                        {p.assignedAvatar && (
-                                          p.assignedAvatarUrl ? (
-                                            <img src={p.assignedAvatarUrl} className="w-5 h-5 rounded-full object-cover ring-1 ring-white -ml-1.5" alt="" />
+                                        {p.assignedAvatar &&
+                                          (p.assignedAvatarUrl ? (
+                                            <img
+                                              src={p.assignedAvatarUrl}
+                                              className="w-5 h-5 rounded-full object-cover ring-1 ring-white -ml-1.5"
+                                              alt=""
+                                            />
                                           ) : (
-                                            <div className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white -ml-1.5" style={{ backgroundColor: p.assignedColor || "#6366f1" }}>{p.assignedAvatar}</div>
-                                          )
-                                        )}
+                                            <div
+                                              className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white -ml-1.5"
+                                              style={{
+                                                backgroundColor:
+                                                  p.assignedColor || "#6366f1",
+                                              }}
+                                            >
+                                              {p.assignedAvatar}
+                                            </div>
+                                          ))}
                                       </div>
                                     </div>
                                   </div>
                                   {/* Expanded view */}
                                   {isExpanded && (
                                     <div className="px-2.5 pb-2.5 border-t border-gray-100 pt-2 space-y-1.5">
-                                      <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-3">{p.content}</p>
+                                      <p className="text-[10px] text-gray-500 leading-relaxed line-clamp-3">
+                                        {p.content}
+                                      </p>
                                       {(p.mediaBase64?.length ?? 0) > 0 && (
-                                        <img src={`data:${p.mediaTypes?.[0] ?? "image/jpeg"};base64,${p.mediaBase64![0]}`}
-                                          className="w-full rounded-lg object-cover" style={{ maxHeight: 70 }} alt="" />
+                                        <img
+                                          src={`data:${p.mediaTypes?.[0] ?? "image/jpeg"};base64,${p.mediaBase64![0]}`}
+                                          className="w-full rounded-lg object-cover"
+                                          style={{ maxHeight: 70 }}
+                                          alt=""
+                                        />
                                       )}
-                                      {p.comments?.filter((c: any) => c.text).length > 0 && (
+                                      {p.comments?.filter((c: any) => c.text)
+                                        .length > 0 && (
                                         <div>
-                                          <p className="text-[9px] font-semibold text-gray-400 uppercase mb-0.5">Comments</p>
-                                          {p.comments.filter((c: any) => c.text).map((c: any, ci: number) => (
-                                            <p key={c.id} className="text-[9px] text-gray-400">{ci + 1}. {c.text}</p>
-                                          ))}
+                                          <p className="text-[9px] font-semibold text-gray-400 uppercase mb-0.5">
+                                            Comments
+                                          </p>
+                                          {p.comments
+                                            .filter((c: any) => c.text)
+                                            .map((c: any, ci: number) => (
+                                              <p
+                                                key={c.id}
+                                                className="text-[9px] text-gray-400"
+                                              >
+                                                {ci + 1}. {c.text}
+                                              </p>
+                                            ))}
                                         </div>
                                       )}
                                       <div className="flex gap-2">
-                                        <button onClick={(e) => { e.stopPropagation(); setEditing(p); }} className="text-[9px] text-primary hover:underline">Edit</button>
-                                        <a href={buildGCalUrl(p)} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[9px] text-emerald-500 hover:underline">📅 GCal</a>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditing(p);
+                                          }}
+                                          className="text-[9px] text-primary hover:underline"
+                                        >
+                                          Edit
+                                        </button>
+                                        <a
+                                          href={buildGCalUrl(p)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-[9px] text-emerald-500 hover:underline"
+                                        >
+                                          📅 GCal
+                                        </a>
                                       </div>
                                     </div>
                                   )}
@@ -5167,18 +5549,31 @@ export default function ContentStudioPage() {
                             {/* Events positioned by time — image 2 style: filled pill */}
                             {dayEvents.map((ev) => {
                               const ec = EVENT_COLORS[ev.color];
-                              const [ph, pm] = (ev.time || "09:00").split(":").map(Number);
-                              const [eh, em] = (ev.endTime || "10:00").split(":").map(Number);
+                              const [ph, pm] = (ev.time || "09:00")
+                                .split(":")
+                                .map(Number);
+                              const [eh, em] = (ev.endTime || "10:00")
+                                .split(":")
+                                .map(Number);
                               const top = (((ph - 6) * 60 + pm) / 60) * SLOT_H;
-                              const height = Math.max(28, (((eh - ph) * 60 + (em - pm)) / 60) * SLOT_H);
+                              const height = Math.max(
+                                28,
+                                (((eh - ph) * 60 + (em - pm)) / 60) * SLOT_H,
+                              );
                               if (top < 0) return null;
-                              const assignedMember = members.find(m => m.uid === ev.assignedToUid);
+                              const assignedMember = members.find(
+                                (m) => m.uid === ev.assignedToUid,
+                              );
                               return (
                                 <div
                                   key={ev.id}
                                   onClick={() => setEditingEvent(ev)}
                                   className="absolute left-1 right-1 rounded-full cursor-pointer hover:opacity-90 transition-all z-10 flex items-center px-2 gap-2 overflow-hidden"
-                                  style={{ top, height, backgroundColor: ec.hex }}
+                                  style={{
+                                    top,
+                                    height,
+                                    backgroundColor: ec.hex,
+                                  }}
                                 >
                                   {/* % or time pill */}
                                   <span className="text-[9px] font-bold text-white/80 bg-white/20 px-1.5 py-0.5 rounded-full flex-shrink-0 whitespace-nowrap">
@@ -5191,7 +5586,11 @@ export default function ContentStudioPage() {
                                   {/* Avatars */}
                                   <div className="flex items-center flex-shrink-0">
                                     {assignedMember?.photoURL ? (
-                                      <img src={assignedMember.photoURL} className="w-5 h-5 rounded-full object-cover ring-1 ring-white/50" alt="" />
+                                      <img
+                                        src={assignedMember.photoURL}
+                                        className="w-5 h-5 rounded-full object-cover ring-1 ring-white/50"
+                                        alt=""
+                                      />
                                     ) : ev.assignedAvatar ? (
                                       <div className="w-5 h-5 rounded-full bg-white/30 flex items-center justify-center text-[8px] font-bold text-white ring-1 ring-white/50">
                                         {ev.assignedAvatar}
