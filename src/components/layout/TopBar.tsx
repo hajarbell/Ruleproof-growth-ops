@@ -28,13 +28,16 @@ export interface AppNotification {
     | "member_joined"
     | "account_connected"
     | "post_imported"
-    | "weekly_digest";
-  // message = what owner sees
-  // personalMessage = what the actor themselves sees (optional)
+    | "weekly_digest"
+    | "post_assigned"
+    | "mention";
   message: string;
   personalMessage?: string;
-  actorUid?: string; // uid of who triggered this
+  actorUid?: string;
   actorName: string;
+  targetUid?: string;
+  postId?: string;
+  navigateTo?: string;
   read: boolean;
   createdAt: string;
 }
@@ -59,6 +62,10 @@ function typeLabel(type: AppNotification["type"]) {
       return "Content";
     case "weekly_digest":
       return "Digest";
+    case "post_assigned":
+      return "Assigned";
+    case "mention":
+      return "Mention";
   }
 }
 
@@ -72,6 +79,10 @@ function typeDot(type: AppNotification["type"]) {
       return "bg-indigo-400";
     case "weekly_digest":
       return "bg-fuchsia-400";
+    case "post_assigned":
+      return "bg-emerald-400";
+    case "mention":
+      return "bg-amber-400";
   }
 }
 
@@ -137,17 +148,22 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ─── Real-time notifications — admin only ──────────────────────────────────
+  // ─── Real-time notifications — all members see their own ──────────────────
   useEffect(() => {
-    if (!workspace?.id || myRole !== "admin") return;
+    if (!workspace?.id || !user?.uid) return;
     const q = query(
       collection(db, "workspaces", workspace.id, "notifications"),
       orderBy("createdAt", "desc"),
     );
     const unsub = onSnapshot(q, (snap) => {
-      const items = snap.docs.map(
+      const allItems = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as AppNotification,
       );
+      // Admins see all; members only see their own (targetUid matches)
+      const items =
+        myRole === "admin"
+          ? allItems
+          : allItems.filter((n) => !n.targetUid || n.targetUid === user?.uid);
       setNotifications(items);
 
       const unread = items.filter((n) => !n.read).length;
@@ -226,8 +242,8 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
       </button>
 
       <div className="flex items-center gap-2">
-        {/* Bell — admin only */}
-        {myRole === "admin" && (
+        {/* Bell — all members */}
+        {user && (
           <div className="relative" ref={bellRef}>
             <button
               onClick={handleBellClick}
@@ -278,7 +294,16 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
                       notifications.map((n) => (
                         <div
                           key={n.id}
-                          className={`w-full text-left px-4 py-3 flex items-start gap-3 border-b border-border/40 last:border-0 ${!n.read ? "bg-muted/20" : ""}`}
+                          className={`w-full text-left px-4 py-3 flex items-start gap-3 border-b border-border/40 last:border-0 cursor-pointer hover:bg-muted/30 transition-colors ${!n.read ? "bg-muted/20" : ""}`}
+                          onClick={() => {
+                            if (n.navigateTo) {
+                              setBellOpen(false);
+                              navigate(n.navigateTo);
+                            } else if (n.postId) {
+                              setBellOpen(false);
+                              navigate(`/content-studio?postId=${n.postId}`);
+                            }
+                          }}
                         >
                           <div
                             className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${typeDot(n.type)} ${n.read ? "opacity-25" : ""}`}
