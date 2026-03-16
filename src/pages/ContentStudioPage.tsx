@@ -4275,7 +4275,10 @@ export default function ContentStudioPage() {
                       key={c}
                       onClick={() => setNewTagColor(c)}
                       className={`w-6 h-6 rounded-full transition-all hover:scale-110 ${newTagColor === c ? "ring-2 ring-offset-1 ring-offset-card" : ""}`}
-                      style={{ backgroundColor: c, ringColor: c }}
+                      style={{
+                        backgroundColor: c,
+                        ["--tw-ring-color" as any]: c,
+                      }}
                     />
                   ))}
                 </div>
