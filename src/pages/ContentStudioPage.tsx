@@ -2936,19 +2936,15 @@ function EditorModal({
                       onKeyDown={(e) => {
                         if (e.key === "Enter" && !e.shiftKey) {
                           e.preventDefault();
-                          if (assignComment.trim()) {
-                            // Trigger notification immediately
-                            setAssignComment(assignComment + "\n[SEND]");
-                            setTimeout(() => setAssignComment(""), 50);
-                          }
+                          // Just save the comment — it'll fire with the post save
                         }
                       }}
-                      placeholder="Add a note... press Enter to send"
+                      placeholder="Add a note to the notification..."
                       rows={2}
-                      className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-[10px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none pr-8"
+                      className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-[10px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
                     />
                     <p className="text-[9px] text-muted-foreground/50 mt-0.5">
-                      ↵ Enter to send · Shift+Enter for newline
+                      Notification sends when you click Save ↑
                     </p>
                   </div>
                 )}
@@ -3722,11 +3718,7 @@ export default function ContentStudioPage() {
   const [filterAcc, setFilterAcc] = useState("All");
   const [calMode, setCalMode] = useState<CalendarMode>("monthly");
   // FIX: dynamic calendar date — no more hardcoded March 2026
-  const [calCurrentDate, setCalCurrentDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d;
-  });
+  const [calCurrentDate, setCalCurrentDate] = useState(() => new Date());
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<PostStatus | null>(null);
@@ -3780,7 +3772,7 @@ export default function ContentStudioPage() {
 
     // @mention detection — fire notification if new @name typed
     const mentionMatch = value.match(/@(\w+)/g);
-    const prevMentions: string[] = (prevValue || "").match(/@(\w+)/g) || [];
+    const prevMentions = (prevValue || "").match(/@(\w+)/g) || [];
     if (mentionMatch && workspace) {
       for (const mention of mentionMatch) {
         if (prevMentions.includes(mention)) continue;
@@ -3929,9 +3921,11 @@ export default function ContentStudioPage() {
       saved.assignedToUid !== user?.uid
     ) {
       playTripleChime();
-      const notifMsg = assignComment
-        ? `📌 ${user?.displayName || "Admin"} assigned "${saved.theme}" to you: "${assignComment}"`
-        : `📌 ${user?.displayName || "Admin"} assigned "${saved.theme}" to you.`;
+      // Strip any [SEND] markers that may have snuck in
+      const cleanComment = assignComment.replace(/\n?\[SEND\]/g, "").trim();
+      const notifMsg = cleanComment
+        ? `📌 ${user?.displayName || "Admin"} assigned "${saved.theme || "a post"}" to you: "${cleanComment}"`
+        : `📌 ${user?.displayName || "Admin"} assigned "${saved.theme || "a post"}" to you.`;
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
@@ -3943,6 +3937,7 @@ export default function ContentStudioPage() {
           targetUid: saved.assignedToUid,
           postId: saved.id,
           postTheme: saved.theme,
+          navigateTo: `/content-studio`,
           read: false,
           createdAt: new Date().toISOString(),
         },
@@ -4333,12 +4328,20 @@ export default function ContentStudioPage() {
                   if (!e.currentTarget.contains(e.relatedTarget as Node))
                     setDragOverCol(null);
                 }}
-                // FIX: use draggingPostId state — React clears dataTransfer before onDrop fires
+                // FIXED: optimistic update first so card moves instantly, then sync to Firestore
                 onDrop={async (e) => {
                   e.preventDefault();
                   setDragOverCol(null);
                   const postId = draggingPostId;
+                  setDraggingPostId(null);
                   if (postId && workspace) {
+                    // Update local state immediately — card appears in new column right away
+                    setPosts((prev) =>
+                      prev.map((p) =>
+                        p.id === postId ? { ...p, status: col } : p,
+                      ),
+                    );
+                    // Then persist to Firestore
                     await updateDoc(
                       doc(
                         db,
@@ -4350,7 +4353,6 @@ export default function ContentStudioPage() {
                       { status: col },
                     );
                   }
-                  setDraggingPostId(null);
                 }}
                 style={{
                   outline: isDragTarget
