@@ -576,12 +576,12 @@ const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
     Archived: { light: "#f4f4f5", dark: "#1c1c20" },
   };
 
-// FIX: progress lines use lifecycle stage (Draft=1 lit, Scheduled=2, Published=3, Archived=4)
+// 3 lifecycle stages: Draft → Scheduled → Published
 const STAGE_DOTS: Record<PostStatus, number> = {
   Draft: 1,
   Scheduled: 2,
   Published: 3,
-  Archived: 4,
+  Archived: 3,
 };
 
 function PostCard({
@@ -845,9 +845,9 @@ function PostCard({
           </p>
         )}
 
-        {/* Progress lines — all same status color when filled */}
+        {/* Progress lines — 3 stages: Draft / Scheduled / Published */}
         <div className="flex gap-1 mb-3">
-          {[0, 1, 2, 3].map((i) => (
+          {[0, 1, 2].map((i) => (
             <div
               key={i}
               className="h-[3px] rounded-full flex-1 transition-all"
@@ -947,11 +947,16 @@ function PostCard({
 function ArchiveColumn({
   posts,
   onRestore,
+  draggingPostId,
+  onDrop,
 }: {
   posts: Post[];
   onRestore: (id: string) => void;
+  draggingPostId?: string | null;
+  onDrop?: (postId: string) => void;
 }) {
   const [isDark, setIsDark] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
   useEffect(() => {
     setIsDark(document.documentElement.classList.contains("dark"));
     const obs = new MutationObserver(() =>
@@ -978,7 +983,28 @@ function ArchiveColumn({
   });
 
   return (
-    <div className="flex-1 min-w-[280px] flex flex-col gap-3">
+    <div
+      className="flex-1 min-w-[280px] flex flex-col gap-3"
+      onDragOver={(e) => {
+        e.preventDefault();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node))
+          setIsDragOver(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDragOver(false);
+        if (draggingPostId && onDrop) onDrop(draggingPostId);
+      }}
+      style={{
+        outline: isDragOver ? `2px dashed ${STATUS_HEX.Archived}` : undefined,
+        borderRadius: 16,
+        padding: isDragOver ? 4 : 0,
+        transition: "all 0.15s",
+      }}
+    >
       <div className="flex items-center gap-2 px-1">
         <span
           className="w-2 h-2 rounded-full"
@@ -990,6 +1016,22 @@ function ArchiveColumn({
         </span>
       </div>
       <div className="space-y-5 flex-1 overflow-y-auto">
+        {/* Ghost drop target */}
+        {isDragOver && draggingPostId && (
+          <div
+            className="rounded-2xl border-2 border-dashed h-20 animate-pulse"
+            style={{
+              borderColor: STATUS_HEX.Archived,
+              backgroundColor: STATUS_HEX.Archived + "10",
+            }}
+          >
+            <div className="h-full flex items-center justify-center">
+              <span className="text-xs text-muted-foreground/60">
+                Drop to archive
+              </span>
+            </div>
+          </div>
+        )}
         {posts.length === 0 && (
           <div className="h-24 rounded-xl border-2 border-dashed border-zinc-300/40 dark:border-zinc-600/30 flex items-center justify-center">
             <div className="text-center">
@@ -1012,14 +1054,14 @@ function ArchiveColumn({
               {monthPosts.map((post, i) => (
                 <div
                   key={post.id}
-                  className="absolute w-full rounded-2xl border-2 p-3 cursor-pointer hover:z-10 hover:shadow-md transition-all group/arch"
+                  className="absolute w-full rounded-2xl border p-3 cursor-pointer hover:z-10 hover:shadow-md transition-all group/arch"
                   style={{
                     top: i * 12,
                     zIndex: i,
                     backgroundColor: isDark ? "#1c2030" : "#f1f5f9",
                     borderColor: isDark
-                      ? "rgba(255,255,255,0.10)"
-                      : "rgba(0,0,0,0.14)",
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(0,0,0,0.10)",
                   }}
                   onClick={() => {
                     if (
@@ -1372,6 +1414,152 @@ function AddEventPanel({
         </p>
       </div>
     </motion.div>
+  );
+}
+
+// ─── PDF Carousel Preview (pdf.js) ───────────────────────────────────────────
+function PdfCarouselPreview({
+  file,
+}: {
+  file: { name: string; previewUrl: string; size: number };
+}) {
+  const [pages, setPages] = React.useState<string[]>([]);
+  const [slide, setSlide] = React.useState(0);
+  const [title, setTitle] = React.useState(() =>
+    file.name.replace(/\.pdf$/i, ""),
+  );
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setPages([]);
+    setSlide(0);
+
+    (async () => {
+      try {
+        // Load pdf.js from CDN
+        if (!(window as any).pdfjsLib) {
+          await new Promise<void>((res, rej) => {
+            const s = document.createElement("script");
+            s.src =
+              "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+            s.onload = () => res();
+            s.onerror = () => rej();
+            document.head.appendChild(s);
+          });
+          (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc =
+            "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
+        const pdfjsLib = (window as any).pdfjsLib;
+        const pdf = await pdfjsLib.getDocument(file.previewUrl).promise;
+        const rendered: string[] = [];
+        for (let i = 1; i <= pdf.numPages; i++) {
+          if (cancelled) return;
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          await page.render({
+            canvasContext: canvas.getContext("2d")!,
+            viewport,
+          }).promise;
+          rendered.push(canvas.toDataURL("image/jpeg", 0.85));
+        }
+        if (!cancelled) {
+          setPages(rendered);
+          setLoading(false);
+        }
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [file.previewUrl]);
+
+  return (
+    <div className="border-t border-[#e0ddd8] dark:border-[#38434f]">
+      {/* Slide area — 1080x1350 LinkedIn ratio = 0.8 */}
+      <div
+        className="relative w-full bg-[#f3f2ef] dark:bg-[#1d2226] overflow-hidden"
+        style={{ aspectRatio: "0.8" }}
+      >
+        {loading ? (
+          <div className="absolute inset-0 flex items-center justify-center flex-col gap-3">
+            <div className="w-8 h-8 border-2 border-[#0077b5] border-t-transparent rounded-full animate-spin" />
+            <p className="text-[12px] text-[#00000066] dark:text-[#ffffff66]">
+              Extracting slides…
+            </p>
+          </div>
+        ) : pages.length > 0 ? (
+          <img
+            src={pages[slide]}
+            alt={`Slide ${slide + 1}`}
+            className="w-full h-full object-contain"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <p className="text-[12px] text-[#00000066]">Could not render PDF</p>
+          </div>
+        )}
+        {/* Prev / Next */}
+        {pages.length > 1 && slide > 0 && (
+          <button
+            onClick={() => setSlide((s) => s - 1)}
+            className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 dark:bg-[#1d2226]/90 shadow-md flex items-center justify-center text-[#00000099] text-xl hover:scale-105 transition-transform"
+          >
+            ‹
+          </button>
+        )}
+        {pages.length > 1 && slide < pages.length - 1 && (
+          <button
+            onClick={() => setSlide((s) => s + 1)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 dark:bg-[#1d2226]/90 shadow-md flex items-center justify-center text-[#00000099] text-xl hover:scale-105 transition-transform"
+          >
+            ›
+          </button>
+        )}
+        {/* Slide counter */}
+        {pages.length > 0 && (
+          <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/50 text-white text-[10px] font-semibold px-2.5 py-1 rounded-full">
+            {slide + 1} / {pages.length}
+          </div>
+        )}
+        {/* Dot indicators */}
+        {pages.length > 1 && (
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 flex gap-1">
+            {pages.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setSlide(i)}
+                className={`rounded-full transition-all ${i === slide ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      {/* Footer — title editable + file info */}
+      <div className="px-3 py-2.5 bg-white dark:bg-[#1d2226] border-t border-[#e0ddd8] dark:border-[#38434f]">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Add a title to your document..."
+          className="w-full text-[13px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] bg-transparent border-none outline-none placeholder:text-[#00000044] dark:placeholder:text-[#ffffff44] mb-1"
+        />
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] text-[#00000066] dark:text-[#ffffff66]">
+            {pages.length > 0 ? `${pages.length} slides` : "PDF"} ·{" "}
+            {Math.round(file.size / 1024)} KB
+          </p>
+          <button className="text-[12px] font-semibold text-[#0077b5] hover:underline">
+            View
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2607,13 +2795,28 @@ function EditorModal({
                   {notifyMember ? "Notify member ✓" : "Notify member"}
                 </button>
                 {notifyMember && (
-                  <textarea
-                    value={assignComment}
-                    onChange={(e) => setAssignComment(e.target.value)}
-                    placeholder="Add a note to the notification... (optional)"
-                    rows={2}
-                    className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-[10px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
-                  />
+                  <div className="relative">
+                    <textarea
+                      value={assignComment}
+                      onChange={(e) => setAssignComment(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          if (assignComment.trim()) {
+                            // Trigger notification immediately
+                            setAssignComment(assignComment + "\n[SEND]");
+                            setTimeout(() => setAssignComment(""), 50);
+                          }
+                        }
+                      }}
+                      placeholder="Add a note... press Enter to send"
+                      rows={2}
+                      className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-[10px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none pr-8"
+                    />
+                    <p className="text-[9px] text-muted-foreground/50 mt-0.5">
+                      ↵ Enter to send · Shift+Enter for newline
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
@@ -2732,38 +2935,84 @@ function EditorModal({
                     if (!files.length) return;
                     files.forEach((file) => {
                       const url = URL.createObjectURL(file);
-                      // FIX: compress images with canvas to stay under Firestore 1MB limit
-                      if (file.type.startsWith("image/")) {
-                        const img = new window.Image();
-                        img.onload = () => {
-                          const canvas = document.createElement("canvas");
-                          // Max 1200px wide — keeps quality while drastically reducing size
-                          const MAX = 1200;
-                          const ratio = Math.min(
-                            1,
-                            MAX / Math.max(img.width, img.height),
-                          );
-                          canvas.width = img.width * ratio;
-                          canvas.height = img.height * ratio;
-                          const ctx = canvas.getContext("2d")!;
-                          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                          // JPEG at 0.82 quality — ~200-400KB for typical social images
-                          const dataUrl = canvas.toDataURL("image/jpeg", 0.82);
-                          const base64 = dataUrl.split(",")[1];
+
+                      if (file.type === "application/pdf") {
+                        // PDF — read as base64, will be rendered with pdf.js
+                        const reader = new FileReader();
+                        reader.onload = (ev) => {
+                          const result = ev.target?.result as string;
+                          const base64 = result.split(",")[1];
                           setUploadedFiles((prev) => [
                             ...prev,
                             {
                               name: file.name,
-                              type: "image/jpeg",
-                              previewUrl: dataUrl,
-                              size: base64.length,
+                              type: file.type,
+                              previewUrl: url,
+                              size: file.size,
                               base64,
                             },
                           ]);
                         };
+                        reader.readAsDataURL(file);
+                      } else if (file.type.startsWith("image/")) {
+                        const img = new window.Image();
+                        img.onload = () => {
+                          // Only compress if > 800KB — otherwise keep original resolution
+                          if (file.size <= 800 * 1024) {
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const result = ev.target?.result as string;
+                              const base64 = result.split(",")[1];
+                              setUploadedFiles((prev) => [
+                                ...prev,
+                                {
+                                  name: file.name,
+                                  type: file.type,
+                                  previewUrl: url,
+                                  size: file.size,
+                                  base64,
+                                },
+                              ]);
+                            };
+                            reader.readAsDataURL(file);
+                          } else {
+                            // Large image — compress to stay under Firestore 1MB
+                            const canvas = document.createElement("canvas");
+                            const MAX = 1920;
+                            const ratio = Math.min(
+                              1,
+                              MAX / Math.max(img.width, img.height),
+                            );
+                            canvas.width = img.width * ratio;
+                            canvas.height = img.height * ratio;
+                            const ctx = canvas.getContext("2d")!;
+                            ctx.drawImage(
+                              img,
+                              0,
+                              0,
+                              canvas.width,
+                              canvas.height,
+                            );
+                            const dataUrl = canvas.toDataURL(
+                              "image/jpeg",
+                              0.92,
+                            );
+                            const base64 = dataUrl.split(",")[1];
+                            setUploadedFiles((prev) => [
+                              ...prev,
+                              {
+                                name: file.name,
+                                type: "image/jpeg",
+                                previewUrl: dataUrl,
+                                size: base64.length,
+                                base64,
+                              },
+                            ]);
+                          }
+                        };
                         img.src = url;
                       } else {
-                        // Video — read as-is (no compression)
+                        // Video — read as-is
                         const reader = new FileReader();
                         reader.onload = (ev) => {
                           const result = ev.target?.result as string;
@@ -3092,26 +3341,20 @@ function EditorModal({
                   </div>
                 </div>
 
-                {/* Content — shows first 3 lines then "...see more" */}
+                {/* Content — LinkedIn-accurate: 210 chars OR 3 newlines triggers see more */}
                 <div className="px-3 pb-2">
                   {(() => {
-                    const lines = content.split("\n");
-                    // LinkedIn shows ~3 lines before "...see more"
-                    const CHAR_LIMIT =
-                      device === "mobile"
-                        ? 120
-                        : device === "tablet"
-                          ? 180
-                          : 260;
+                    const CHAR_LIMIT = device === "mobile" ? 140 : 210;
                     const LINE_LIMIT = 3;
-                    const truncateLines = lines.slice(0, LINE_LIMIT).join("\n");
+                    const lines = content.split("\n");
+                    const firstLines = lines.slice(0, LINE_LIMIT).join("\n");
                     const needsMore =
-                      lines.length > LINE_LIMIT || content.length > CHAR_LIMIT;
+                      content.length > CHAR_LIMIT || lines.length > LINE_LIMIT;
                     const displayText =
                       needsMore && !showFullPreview
-                        ? truncateLines.length > CHAR_LIMIT
-                          ? truncateLines.slice(0, CHAR_LIMIT)
-                          : truncateLines
+                        ? firstLines.length > CHAR_LIMIT
+                          ? firstLines.slice(0, CHAR_LIMIT)
+                          : firstLines
                         : content;
                     return (
                       <div>
@@ -3192,61 +3435,7 @@ function EditorModal({
                     </div>
                   )}
                 {uploadedFile && uploadedFile.type === "application/pdf" && (
-                  // LinkedIn document carousel — full-width slide viewer
-                  <div className="border-t border-[#e0ddd8] dark:border-[#38434f]">
-                    {/* Slide area */}
-                    <div
-                      className="relative w-full bg-[#f3f2ef] dark:bg-[#1d2226] flex flex-col items-center justify-center"
-                      style={{ aspectRatio: "1.33" }}
-                    >
-                      {/* Slide content */}
-                      <div className="flex flex-col items-center gap-3 px-6">
-                        <div className="w-16 h-16 rounded-2xl bg-[#0077b5] flex items-center justify-center shadow-lg">
-                          <span className="text-white text-3xl font-bold">
-                            📄
-                          </span>
-                        </div>
-                        <p className="text-[13px] font-bold text-[#000000e6] dark:text-[#ffffffd9] text-center max-w-[80%] line-clamp-2">
-                          {uploadedFile.name}
-                        </p>
-                        <p className="text-[11px] text-[#00000066] dark:text-[#ffffff66]">
-                          Page 1 of —
-                        </p>
-                      </div>
-                      {/* Prev/next arrows */}
-                      <button className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white dark:bg-[#1d2226] shadow flex items-center justify-center text-[#00000099]">
-                        ‹
-                      </button>
-                      <button className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white dark:bg-[#1d2226] shadow flex items-center justify-center text-[#00000099]">
-                        ›
-                      </button>
-                      {/* Slide counter */}
-                      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/40 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
-                        1 / —
-                      </div>
-                    </div>
-                    {/* Document footer bar */}
-                    <div className="px-3 py-2 flex items-center justify-between bg-white dark:bg-[#1d2226] border-t border-[#e0ddd8] dark:border-[#38434f]">
-                      <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 rounded-lg bg-[#0077b5] flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-[11px] font-bold">
-                            PDF
-                          </span>
-                        </div>
-                        <div>
-                          <p className="text-[12px] font-semibold text-[#000000e6] dark:text-[#ffffffd9] truncate max-w-[160px]">
-                            {uploadedFile.name}
-                          </p>
-                          <p className="text-[10px] text-[#00000066] dark:text-[#ffffff66]">
-                            Document · {Math.round(uploadedFile.size / 1024)} KB
-                          </p>
-                        </div>
-                      </div>
-                      <button className="text-[12px] font-semibold text-[#0077b5] flex-shrink-0 hover:underline">
-                        View
-                      </button>
-                    </div>
-                  </div>
+                  <PdfCarouselPreview file={uploadedFile} />
                 )}
 
                 {/* Reactions */}
@@ -3422,6 +3611,21 @@ export default function ContentStudioPage() {
     {},
   );
   const [freeRows, setFreeRows] = useState<Record<string, string>[]>([]);
+  // Tag system for sheets
+  const [customTags, setCustomTags] = useState<
+    { label: string; color: string }[]
+  >([]);
+  const [showTagPanel, setShowTagPanel] = useState(false);
+  const [newTagLabel, setNewTagLabel] = useState("");
+  const [newTagColor, setNewTagColor] = useState("#6366f1");
+  const TAG_PALETTE = [
+    "#6366f1",
+    "#10b981",
+    "#f59e0b",
+    "#f43f5e",
+    "#0ea5e9",
+    "#8b5cf6",
+  ];
   const [calEvents, setCalEvents] = useState<CalEvent[]>([]);
   const [addEventDay, setAddEventDay] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null);
@@ -4004,8 +4208,17 @@ export default function ContentStudioPage() {
               </div>
             );
           })}
-          {/* FIX: Archive column from archivedPosts collection, stacked by month */}
-          <ArchiveColumn posts={archivedPosts} onRestore={restorePost} />
+          {/* Archive column — drag cards here to archive them */}
+          <ArchiveColumn
+            posts={archivedPosts}
+            onRestore={restorePost}
+            draggingPostId={draggingPostId}
+            onDrop={async (postId) => {
+              if (workspace) await archivePost(postId);
+              setDraggingPostId(null);
+              setDragOverCol(null);
+            }}
+          />
         </motion.div>
       )}
 
@@ -4014,8 +4227,85 @@ export default function ContentStudioPage() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="glass rounded-xl shadow-soft overflow-auto flex-1"
+          className="glass rounded-xl shadow-soft overflow-auto flex-1 relative"
         >
+          {/* Tag panel */}
+          {showTagPanel && (
+            <div className="absolute top-12 right-4 z-30 w-72 bg-card rounded-2xl border border-border shadow-2xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold text-foreground">Tags</p>
+                <button
+                  onClick={() => setShowTagPanel(false)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {/* Existing tags */}
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  ...CONTENT_TAGS.map((t) => ({
+                    label: t,
+                    color: TAG_COLORS[t].match(/#[0-9a-f]+/i)?.[0] || "#6366f1",
+                  })),
+                  ...customTags,
+                ].map((t, i) => (
+                  <span
+                    key={i}
+                    className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium text-white"
+                    style={{ backgroundColor: t.color }}
+                  >
+                    {t.label}
+                  </span>
+                ))}
+              </div>
+              <div className="border-t border-border pt-3">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Create new tag
+                </p>
+                <input
+                  value={newTagLabel}
+                  onChange={(e) => setNewTagLabel(e.target.value)}
+                  placeholder="Tag name..."
+                  className="w-full px-2 py-1.5 rounded-lg bg-muted/50 border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring mb-2"
+                />
+                <div className="flex gap-1.5 mb-2">
+                  {TAG_PALETTE.map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setNewTagColor(c)}
+                      className={`w-6 h-6 rounded-full transition-all hover:scale-110 ${newTagColor === c ? "ring-2 ring-offset-1 ring-offset-card" : ""}`}
+                      style={{ backgroundColor: c, ringColor: c }}
+                    />
+                  ))}
+                </div>
+                <button
+                  onClick={() => {
+                    if (newTagLabel.trim()) {
+                      setCustomTags((p) => [
+                        ...p,
+                        { label: newTagLabel.trim(), color: newTagColor },
+                      ]);
+                      setNewTagLabel("");
+                    }
+                  }}
+                  disabled={!newTagLabel.trim()}
+                  className="w-full py-1.5 rounded-lg gradient-primary text-white text-xs font-semibold disabled:opacity-40"
+                >
+                  Add tag
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-muted/10">
+            <p className="text-xs font-semibold text-foreground">Sheets</p>
+            <button
+              onClick={() => setShowTagPanel((p) => !p)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${showTagPanel ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground hover:text-foreground"}`}
+            >
+              <Plus className="w-3 h-3" /> Tags
+            </button>
+          </div>
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-border bg-muted/30">
@@ -4260,7 +4550,7 @@ export default function ContentStudioPage() {
                 <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line mb-4">
                   {sheetPreview.content}
                 </p>
-                {/* Media preview */}
+                {/* Media preview — full size, no crop */}
                 {sheetPreview.mediaBase64?.length > 0 && (
                   <div className="mb-4 rounded-xl overflow-hidden border border-border">
                     {(sheetPreview.mediaTypes?.[0] ?? "").startsWith(
@@ -4272,7 +4562,7 @@ export default function ContentStudioPage() {
                     ) : (
                       <img
                         src={`data:${sheetPreview.mediaTypes?.[0] ?? "image/jpeg"};base64,${sheetPreview.mediaBase64[0]}`}
-                        className="w-full object-cover max-h-64"
+                        className="w-full object-contain"
                         alt=""
                       />
                     )}
@@ -4750,6 +5040,7 @@ export default function ContentStudioPage() {
                                 .map(Number);
                               const top = (((ph - 6) * 60 + pm) / 60) * SLOT_H;
                               if (top < 0) return null;
+                              const isExpanded = expandedCard === p.id;
                               return (
                                 <div
                                   key={p.id}
@@ -4759,45 +5050,130 @@ export default function ContentStudioPage() {
                                     setDragging(null);
                                     setDragOver(null);
                                   }}
-                                  onClick={() => setEditing(p)}
-                                  className="absolute left-1 right-1 rounded-lg px-2 py-1.5 cursor-grab active:cursor-grabbing hover:shadow-md transition-all z-10 overflow-hidden"
+                                  onClick={() =>
+                                    setExpandedCard(isExpanded ? null : p.id)
+                                  }
+                                  className="absolute left-1 right-1 rounded-lg cursor-pointer hover:shadow-md transition-all z-10 overflow-hidden"
                                   style={{
                                     top,
                                     minHeight: 44,
                                     backgroundColor:
                                       p.cardColor ||
-                                      STATUS_HEX[p.status] + "20",
+                                      STATUS_HEX[p.status] + "18",
                                     borderLeft: `3px solid ${STATUS_HEX[p.status]}`,
                                     border: `1px solid ${STATUS_HEX[p.status]}40`,
                                     borderLeftWidth: 3,
                                   }}
                                 >
-                                  <p
-                                    className="text-[10px] font-bold truncate"
-                                    style={{ color: STATUS_HEX[p.status] }}
-                                  >
-                                    <span className="material-symbols-outlined text-[12px] align-middle mr-0.5">
-                                      alarm
-                                    </span>
-                                    {p.scheduledTime}
-                                  </p>
-                                  <p className="text-[11px] font-semibold text-foreground truncate">
-                                    {p.theme || p.content.slice(0, 25)}
-                                  </p>
-                                  {p.accountAvatarUrl ? (
-                                    <img
-                                      src={p.accountAvatarUrl}
-                                      className="w-4 h-4 rounded-full object-cover mt-1"
-                                      alt=""
-                                    />
-                                  ) : (
-                                    <div
-                                      className="w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold text-white mt-1"
-                                      style={{
-                                        backgroundColor: p.accountColor,
-                                      }}
+                                  <div className="px-2 py-1.5">
+                                    <p
+                                      className="text-[10px] font-bold"
+                                      style={{ color: STATUS_HEX[p.status] }}
                                     >
-                                      {p.accountAvatar}
+                                      <span className="material-symbols-outlined text-[12px] align-middle mr-0.5">
+                                        alarm
+                                      </span>
+                                      {p.scheduledTime}
+                                    </p>
+                                    <p className="text-[11px] font-semibold text-foreground truncate">
+                                      {p.theme || p.content.slice(0, 25)}
+                                    </p>
+                                    {/* Assigned + account avatars */}
+                                    <div className="flex items-center gap-1 mt-1">
+                                      {p.accountAvatarUrl ? (
+                                        <img
+                                          src={p.accountAvatarUrl}
+                                          className="w-5 h-5 rounded-full object-cover ring-1 ring-white/30"
+                                          alt=""
+                                        />
+                                      ) : (
+                                        <div
+                                          className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ring-1 ring-white/30"
+                                          style={{
+                                            backgroundColor: p.accountColor,
+                                          }}
+                                        >
+                                          {p.accountAvatar}
+                                        </div>
+                                      )}
+                                      {p.assignedAvatarUrl ? (
+                                        <img
+                                          src={p.assignedAvatarUrl}
+                                          className="w-5 h-5 rounded-full object-cover ring-1 ring-white/30 -ml-1"
+                                          alt=""
+                                        />
+                                      ) : p.assignedAvatar ? (
+                                        <div
+                                          className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ring-1 ring-white/30 -ml-1"
+                                          style={{
+                                            backgroundColor:
+                                              p.assignedColor || "#6366f1",
+                                          }}
+                                        >
+                                          {p.assignedAvatar}
+                                        </div>
+                                      ) : null}
+                                      {p.assignedTo && p.assignedTo !== "—" && (
+                                        <span className="text-[9px] text-muted-foreground ml-0.5">
+                                          {p.assignedTo.split(" ")[0]}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {/* Expanded view */}
+                                  {isExpanded && (
+                                    <div className="px-2 pb-2 border-t border-black/10 dark:border-white/10 mt-1 space-y-1.5">
+                                      <p className="text-[10px] text-muted-foreground leading-relaxed line-clamp-3">
+                                        {p.content}
+                                      </p>
+                                      {/* Media preview */}
+                                      {p.mediaBase64?.length > 0 && (
+                                        <img
+                                          src={`data:${p.mediaTypes?.[0] ?? "image/jpeg"};base64,${p.mediaBase64[0]}`}
+                                          className="w-full rounded object-cover"
+                                          style={{ maxHeight: 80 }}
+                                          alt=""
+                                        />
+                                      )}
+                                      {/* Comments */}
+                                      {p.comments?.filter((c: any) => c.text)
+                                        .length > 0 && (
+                                        <div>
+                                          <p className="text-[9px] font-semibold text-muted-foreground uppercase mb-0.5">
+                                            Comments
+                                          </p>
+                                          {p.comments
+                                            .filter((c: any) => c.text)
+                                            .map((c: any, ci: number) => (
+                                              <p
+                                                key={c.id}
+                                                className="text-[9px] text-muted-foreground"
+                                              >
+                                                {ci + 1}. {c.text}
+                                              </p>
+                                            ))}
+                                        </div>
+                                      )}
+                                      <div className="flex gap-2">
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditing(p);
+                                          }}
+                                          className="text-[9px] text-primary hover:underline"
+                                        >
+                                          Edit
+                                        </button>
+                                        <a
+                                          href={buildGCalUrl(p)}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-[9px] text-emerald-400 hover:underline"
+                                        >
+                                          📅 GCal
+                                        </a>
+                                      </div>
                                     </div>
                                   )}
                                 </div>
