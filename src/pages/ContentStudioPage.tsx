@@ -88,7 +88,7 @@ type ContentTag =
   | "Personal"
   | "Building in Public"
   | "Promotion";
-type PostStatus = "Draft" | "Approved" | "Scheduled" | "Published" | "Archived";
+type PostStatus = "Draft" | "Scheduled" | "Published" | "Archived";
 type ViewMode = "cards" | "sheets" | "calendar";
 type VisualType = "text" | "carousel" | "infographic" | "video";
 type PreviewDevice = "desktop" | "mobile" | "tablet";
@@ -322,14 +322,12 @@ const FUNNEL_COLORS: Record<FunnelTag, string> = {
 };
 const STATUS_COLORS: Record<PostStatus, string> = {
   Draft: "bg-zinc-500/20 text-zinc-400",
-  Approved: "bg-teal-500/20 text-teal-400",
   Scheduled: "bg-indigo-500/20 text-indigo-400",
   Published: "bg-emerald-500/20 text-emerald-400",
   Archived: "bg-zinc-400/15 text-zinc-400",
 };
 const STATUS_HEX: Record<PostStatus, string> = {
   Draft: "#71717a",
-  Approved: "#14b8a6",
   Scheduled: "#6366f1",
   Published: "#10b981",
   Archived: "#a1a1aa",
@@ -577,20 +575,18 @@ function StatsStrip({ posts }: { posts: Post[] }) {
 // Status → card background colors matching reference screenshot
 const CARD_STATUS_BG_HEX: Record<PostStatus, { light: string; dark: string }> =
   {
-    Draft: { light: "#f8fafc", dark: "#1e2535" },
-    Approved: { light: "#f0fdfa", dark: "#0d2420" },
     Scheduled: { light: "#ede9fe", dark: "#2e1f4f" },
+    Draft: { light: "#f8fafc", dark: "#1e2535" },
     Published: { light: "#f0fdf4", dark: "#0f2a1e" },
     Archived: { light: "#f4f4f5", dark: "#1c1c20" },
   };
 
-// 4 lifecycle stages: Draft → Approved → Scheduled → Published
+// 3 lifecycle stages: Draft → Scheduled → Published
 const STAGE_DOTS: Record<PostStatus, number> = {
   Draft: 1,
-  Approved: 2,
-  Scheduled: 3,
-  Published: 4,
-  Archived: 4,
+  Scheduled: 2,
+  Published: 3,
+  Archived: 3,
 };
 
 function PostCard({
@@ -762,7 +758,6 @@ function PostCard({
                     {(
                       [
                         "Draft",
-                        "Approved",
                         "Scheduled",
                         "Published",
                         "Archived",
@@ -2847,18 +2842,18 @@ function EditorModal({
               <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                 Status
               </p>
-              {(
-                ["Draft", "Approved", "Scheduled", "Published"] as PostStatus[]
-              ).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStatus(s)}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium mb-1 ${status === s ? STATUS_COLORS[s] : "bg-muted/50 text-muted-foreground"}`}
-                >
-                  {s}
-                  {status === s && <Check className="w-3 h-3" />}
-                </button>
-              ))}
+              {(["Draft", "Scheduled", "Published"] as PostStatus[]).map(
+                (s) => (
+                  <button
+                    key={s}
+                    onClick={() => setStatus(s)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] font-medium mb-1 ${status === s ? STATUS_COLORS[s] : "bg-muted/50 text-muted-foreground"}`}
+                  >
+                    {s}
+                    {status === s && <Check className="w-3 h-3" />}
+                  </button>
+                ),
+              )}
             </div>
 
             {/* Schedule */}
@@ -3709,229 +3704,6 @@ function EditorModal({
   );
 }
 
-// ─── FreeCell — smart editable cell for blank rows ───────────────────────────
-// Handles: @tag → activates tag, @name → assigns member, Enter to save, hover delete on tags
-function FreeCell({
-  value,
-  colId,
-  rowIdx,
-  members,
-  customTags,
-  allTags,
-  onSave,
-  onDeleteTag,
-}: {
-  value: string;
-  colId: string;
-  rowIdx: number;
-  members: WorkspaceMember[];
-  customTags: { label: string; color: string }[];
-  allTags: { label: string; color: string }[];
-  onSave: (val: string) => void;
-  onDeleteTag: (tag: string) => void;
-}) {
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState(value);
-  const [suggestions, setSuggestions] = React.useState<string[]>([]);
-  const [suggType, setSuggType] = React.useState<"tag" | "member" | null>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
-
-  React.useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  const handleChange = (val: string) => {
-    setDraft(val);
-    // Detect @ pattern at end of string
-    const match = val.match(/@(\w*)$/);
-    if (match) {
-      const q = match[1].toLowerCase();
-      // Member suggestions
-      const memberMatches = members
-        .map(
-          (m) => m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "",
-        )
-        .filter((n) => n.toLowerCase().startsWith(q));
-      // Tag suggestions
-      const tagMatches = allTags
-        .map((t) => t.label)
-        .filter((t) => t.toLowerCase().startsWith(q));
-      if (memberMatches.length > 0) {
-        setSuggestions(memberMatches.slice(0, 5));
-        setSuggType("member");
-      } else if (tagMatches.length > 0) {
-        setSuggestions(tagMatches.slice(0, 5));
-        setSuggType("tag");
-      } else {
-        setSuggestions([]);
-        setSuggType(null);
-      }
-    } else {
-      setSuggestions([]);
-      setSuggType(null);
-    }
-  };
-
-  const pickSuggestion = (s: string) => {
-    const newVal = draft.replace(/@\w*$/, `@${s} `);
-    setDraft(newVal);
-    setSuggestions([]);
-    setSuggType(null);
-    onSave(newVal);
-    inputRef.current?.focus();
-  };
-
-  const commit = () => {
-    setEditing(false);
-    setSuggestions([]);
-    if (draft !== value) onSave(draft);
-  };
-
-  // Parse tags out of value — anything after @tagname
-  const tagChips = allTags.filter((t) => value.includes(`@${t.label}`));
-  const memberChips = members.filter((m) => {
-    const n = m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "";
-    return value.includes(`@${n}`);
-  });
-
-  if (!editing) {
-    return (
-      <div
-        className="min-h-[22px] cursor-text flex flex-wrap gap-1 items-center"
-        onDoubleClick={() => {
-          setEditing(true);
-          setTimeout(() => inputRef.current?.focus(), 0);
-        }}
-        onClick={() => {
-          setEditing(true);
-          setTimeout(() => inputRef.current?.focus(), 0);
-        }}
-      >
-        {/* Tag chips with hover-delete */}
-        {tagChips.map((t) => (
-          <span
-            key={t.label}
-            className="group/tag flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full font-medium text-white"
-            style={{ backgroundColor: t.color || "#6366f1" }}
-          >
-            {t.label}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteTag(t.label);
-              }}
-              className="opacity-0 group-hover/tag:opacity-100 transition-opacity ml-0.5 hover:text-red-200"
-            >
-              <X className="w-2.5 h-2.5" />
-            </button>
-          </span>
-        ))}
-        {/* Member chips */}
-        {memberChips.map((m) => {
-          const name =
-            m.displayName?.split(" ")[0] || m.email?.split("@")[0] || "";
-          return (
-            <span
-              key={m.uid}
-              className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-400 font-medium"
-            >
-              {(m as any).photoURL ? (
-                <img
-                  src={(m as any).photoURL}
-                  className="w-3 h-3 rounded-full object-cover"
-                  alt=""
-                />
-              ) : null}
-              {name}
-            </span>
-          );
-        })}
-        {/* Plain text (minus @tags already shown) */}
-        {tagChips.length === 0 && memberChips.length === 0 && (
-          <span
-            className={`text-xs ${value ? "text-foreground" : "text-muted-foreground/40"}`}
-          >
-            {value || "—"}
-          </span>
-        )}
-        {(tagChips.length > 0 || memberChips.length > 0) && (
-          <span className="text-[10px] text-muted-foreground/50 truncate max-w-[80px]">
-            {value.replace(/@\w+/g, "").trim()}
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        value={draft}
-        autoFocus
-        onChange={(e) => handleChange(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            commit();
-          }
-          if (e.key === "Escape") {
-            setDraft(value);
-            setEditing(false);
-            setSuggestions([]);
-          }
-        }}
-        placeholder={
-          colId === "theme"
-            ? "Title..."
-            : colId === "content"
-              ? "Write... use @name to assign, @tag to tag"
-              : "Type... use @name or @tag"
-        }
-        className="w-full bg-primary/5 border border-primary/40 rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-w-[80px]"
-      />
-      {/* Autocomplete dropdown */}
-      {suggestions.length > 0 && (
-        <div className="absolute top-full left-0 z-50 bg-card border border-border rounded-lg shadow-xl overflow-hidden min-w-[140px] mt-0.5">
-          {suggestions.map((s) => (
-            <button
-              key={s}
-              onMouseDown={() => pickSuggestion(s)}
-              className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-muted/50 flex items-center gap-2"
-            >
-              {suggType === "member" ? (
-                <>
-                  <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[8px] font-bold text-primary flex-shrink-0">
-                    {s[0]?.toUpperCase()}
-                  </div>
-                  <span className="text-foreground">{s}</span>
-                </>
-              ) : (
-                <>
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{
-                      backgroundColor:
-                        allTags.find((t) => t.label === s)?.color || "#6366f1",
-                    }}
-                  />
-                  <span className="text-foreground">{s}</span>
-                </>
-              )}
-            </button>
-          ))}
-          <div className="px-2 py-1 border-t border-border/50 text-[9px] text-muted-foreground/50">
-            {suggType === "member"
-              ? "Enter to assign, sends notification"
-              : "Enter to apply tag"}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ContentStudioPage() {
   const { workspace, members, user } = useAuth();
@@ -4011,15 +3783,34 @@ export default function ContentStudioPage() {
             (m.email || "").toLowerCase().startsWith(mentionedName),
         );
         if (mentionedMember && mentionedMember.uid !== user?.uid) {
+          const actorFirst = (user?.displayName || "Someone").split(" ")[0];
+          const targetMsg = `💬 ${actorFirst} mentioned you in a sheet: "${value.slice(0, 60)}"`;
+          const actorMsg = `💬 You mentioned ${mentionedMember.displayName?.split(" ")[0] || "them"} in a sheet.`;
+
+          // Notification for the mentioned member
           await addDoc(
             collection(db, "workspaces", workspace.id, "notifications"),
             {
               type: "mention",
-              message: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
-              personalMessage: `${user?.displayName || "Someone"} mentioned you in a sheet: "${value.slice(0, 60)}"`,
+              message: targetMsg,
               actorUid: user?.uid ?? "",
               actorName: user?.displayName || "",
               targetUid: mentionedMember.uid,
+              navigateTo: "/content-studio",
+              read: false,
+              createdAt: new Date().toISOString(),
+            },
+          );
+
+          // Actor-only confirmation
+          await addDoc(
+            collection(db, "workspaces", workspace.id, "notifications"),
+            {
+              type: "mention",
+              message: actorMsg,
+              actorUid: user?.uid ?? "",
+              actorName: user?.displayName || "",
+              targetUid: user?.uid ?? "",
               navigateTo: "/content-studio",
               read: false,
               createdAt: new Date().toISOString(),
@@ -4149,23 +3940,51 @@ export default function ContentStudioPage() {
       saved.assignedToUid !== user?.uid
     ) {
       playTripleChime();
-      // Strip any [SEND] markers that may have snuck in
       const cleanComment = assignComment.replace(/\n?\[SEND\]/g, "").trim();
-      const notifMsg = cleanComment
-        ? `📌 ${user?.displayName || "Admin"} assigned "${saved.theme || "a post"}" to you: "${cleanComment}"`
-        : `📌 ${user?.displayName || "Admin"} assigned "${saved.theme || "a post"}" to you.`;
+      const actorFirst = (user?.displayName || "Admin").split(" ")[0];
+      const assignedMember = members.find((m) => m.uid === saved.assignedToUid);
+      const targetFirst =
+        assignedMember?.displayName?.split(" ")[0] ||
+        assignedMember?.email?.split("@")[0] ||
+        "them";
+
+      // Message the TARGET sees: "Hajar assigned X to you"
+      const targetMsg = cleanComment
+        ? `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you: "${cleanComment}"`
+        : `📌 ${actorFirst} assigned "${saved.theme || "a post"}" to you.`;
+
+      // Message the ACTOR sees in their own feed (separate doc, only visible to actor)
+      const actorMsg = `📌 You assigned "${saved.theme || "a post"}" to ${targetFirst}.`;
+
+      // Write notification for TARGET only
       await addDoc(
         collection(db, "workspaces", workspace.id, "notifications"),
         {
           type: "post_assigned",
-          message: notifMsg,
-          personalMessage: notifMsg,
+          message: targetMsg,
           actorUid: user?.uid ?? "",
           actorName: user?.displayName || "Admin",
-          targetUid: saved.assignedToUid,
+          targetUid: saved.assignedToUid, // only this person sees it
           postId: saved.id,
           postTheme: saved.theme,
-          navigateTo: `/content-studio`,
+          navigateTo: `/content-studio?postId=${saved.id}`,
+          read: false,
+          createdAt: new Date().toISOString(),
+        },
+      );
+
+      // Write a separate actor-only confirmation (only actor sees this)
+      await addDoc(
+        collection(db, "workspaces", workspace.id, "notifications"),
+        {
+          type: "post_assigned",
+          message: actorMsg,
+          actorUid: user?.uid ?? "",
+          actorName: user?.displayName || "Admin",
+          targetUid: user?.uid ?? "", // actor sees this one
+          postId: saved.id,
+          postTheme: saved.theme,
+          navigateTo: `/content-studio?postId=${saved.id}`,
           read: false,
           createdAt: new Date().toISOString(),
         },
@@ -4488,14 +4307,7 @@ export default function ContentStudioPage() {
 
         <div className="flex gap-1.5">
           {(
-            [
-              "All",
-              "Draft",
-              "Approved",
-              "Scheduled",
-              "Published",
-              "Archived",
-            ] as const
+            ["All", "Draft", "Scheduled", "Published", "Archived"] as const
           ).map((s) => (
             <button
               key={s}
@@ -4548,9 +4360,7 @@ export default function ContentStudioPage() {
           className="flex gap-4 flex-1 overflow-x-auto pb-2"
         >
           {/* FIX: Archived removed — ArchiveColumn handles it from its own collection */}
-          {(
-            ["Draft", "Approved", "Scheduled", "Published"] as PostStatus[]
-          ).map((col) => {
+          {(["Draft", "Scheduled", "Published"] as PostStatus[]).map((col) => {
             const colPosts = filtered.filter((p) => p.status === col);
             const isDragTarget = dragOverCol === col;
             return (
@@ -4761,13 +4571,12 @@ export default function ContentStudioPage() {
                         { label: newTagLabel.trim(), color: newTagColor },
                       ]);
                       setNewTagLabel("");
-                      setShowTagPanel(false); // auto-close after creating
                     }
                   }}
                   disabled={!newTagLabel.trim()}
                   className="w-full py-1.5 rounded-lg gradient-primary text-white text-xs font-semibold disabled:opacity-40"
                 >
-                  Add tag &amp; close
+                  Add tag
                 </button>
               </div>
             </div>
@@ -4899,55 +4708,79 @@ export default function ContentStudioPage() {
               {freeRows.map((row, rowIdx) => (
                 <tr
                   key={`free-${rowIdx}`}
-                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5 group/freerow"
+                  className="border-b border-border/40 hover:bg-muted/20 bg-muted/5"
                 >
                   {sheetCols.map((col) => (
                     <td
                       key={col.id}
-                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[220px] relative"
+                      className="px-3 py-2 border-r border-border/30 last:border-r-0 max-w-[200px]"
                     >
-                      <FreeCell
-                        value={row[col.id] || ""}
-                        colId={col.id}
-                        rowIdx={rowIdx}
-                        members={members}
-                        customTags={customTags}
-                        allTags={[
-                          ...CONTENT_TAGS.map((ct) => ({
-                            label: ct,
-                            color:
-                              TAG_COLORS[ct].match(/#[0-9a-f]+/i)?.[0] ||
-                              "#6366f1",
-                          })),
-                          ...customTags,
-                        ]}
-                        onSave={async (val) => {
-                          await updateFreeRow(
-                            rowIdx,
-                            col.id,
-                            val,
-                            row[col.id] || "",
-                          );
-                        }}
-                        onDeleteTag={(tag) => {
-                          const current = (row[col.id] || "")
+                      {col.id === "tags" ? (
+                        // Tag column: show chips + click to open tag panel
+                        <div
+                          className="flex flex-wrap gap-1 min-h-[24px] cursor-pointer"
+                          onClick={() => {
+                            setSelectedFreeRowForTag(rowIdx);
+                            setShowTagPanel(true);
+                          }}
+                        >
+                          {(row[col.id] || "")
                             .split(",")
-                            .map((t: string) => t.trim())
-                            .filter(Boolean);
-                          const next = current
-                            .filter((t: string) => t !== tag)
-                            .join(", ");
-                          updateFreeRow(
-                            rowIdx,
-                            col.id,
-                            next,
-                            row[col.id] || "",
-                          );
-                        }}
-                      />
+                            .filter(Boolean)
+                            .map((t, ti) => {
+                              const tagObj = [
+                                ...CONTENT_TAGS.map((ct) => ({
+                                  label: ct,
+                                  color: "",
+                                })),
+                                ...customTags,
+                              ].find((ct) => ct.label === t.trim());
+                              return (
+                                <span
+                                  key={ti}
+                                  className="text-[10px] px-2 py-0.5 rounded-full font-medium text-white"
+                                  style={{
+                                    backgroundColor: tagObj?.color || "#6366f1",
+                                  }}
+                                >
+                                  {t.trim()}
+                                </span>
+                              );
+                            })}
+                          {!row[col.id] && (
+                            <span className="text-[10px] text-muted-foreground/40">
+                              + tag
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <input
+                          value={row[col.id] || ""}
+                          onChange={(e) =>
+                            updateFreeRow(
+                              rowIdx,
+                              col.id,
+                              e.target.value,
+                              row[col.id] || "",
+                            )
+                          }
+                          placeholder={
+                            col.id === "theme"
+                              ? "Title..."
+                              : col.id === "content"
+                                ? "Write..."
+                                : "—"
+                          }
+                          className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 rounded px-1 py-0.5"
+                          style={{
+                            color: (row[col.id] || "").includes("@")
+                              ? undefined
+                              : undefined,
+                          }}
+                        />
+                      )}
                     </td>
                   ))}
-                  {/* Extra cells for custom columns beyond INITIAL_SHEET_COLS */}
                   <td className="px-3 py-2">
                     <button
                       onClick={async () => {
@@ -4955,7 +4788,7 @@ export default function ContentStudioPage() {
                         setFreeRows(newRows);
                         await saveFreeRows(newRows);
                       }}
-                      className="text-[10px] text-muted-foreground hover:text-destructive opacity-0 group-hover/freerow:opacity-100 transition-opacity"
+                      className="text-[10px] text-muted-foreground hover:text-destructive"
                     >
                       ✕
                     </button>
@@ -5616,9 +5449,9 @@ export default function ContentStudioPage() {
                                   style={{
                                     top,
                                     minHeight: 72,
-                                    backgroundColor: "#ffffff",
-                                    border: "1px solid rgba(0,0,0,0.07)",
-                                    boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                                    backgroundColor: "var(--card, #f8fafc)",
+                                    border: "1px solid rgba(0,0,0,0.06)",
+                                    boxShadow: "0 1px 6px rgba(0,0,0,0.07)",
                                   }}
                                 >
                                   <div className="p-2.5">
@@ -5640,7 +5473,7 @@ export default function ContentStudioPage() {
                                       <MoreHorizontal className="w-3 h-3 text-muted-foreground/40" />
                                     </div>
                                     {/* Title */}
-                                    <p className="text-[11px] font-semibold text-gray-800 leading-snug line-clamp-2 mb-2">
+                                    <p className="text-[11px] font-semibold text-foreground leading-snug line-clamp-2 mb-2">
                                       {p.theme ||
                                         p.content.slice(0, 40) ||
                                         "Untitled"}
@@ -5665,17 +5498,17 @@ export default function ContentStudioPage() {
                                       {(p.mediaBase64?.length ?? 0) > 0 && (
                                         <ImageIcon className="w-2.5 h-2.5 text-muted-foreground" />
                                       )}
-                                      {/* Avatars right */}
+                                      {/* Avatars right — w-7 h-7 so they're actually visible */}
                                       <div className="ml-auto flex items-center">
                                         {p.accountAvatarUrl ? (
                                           <img
                                             src={p.accountAvatarUrl}
-                                            className="w-5 h-5 rounded-full object-cover ring-1 ring-white"
+                                            className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-[#252d3d]"
                                             alt=""
                                           />
                                         ) : (
                                           <div
-                                            className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white"
+                                            className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#252d3d]"
                                             style={{
                                               backgroundColor: p.accountColor,
                                             }}
@@ -5687,12 +5520,12 @@ export default function ContentStudioPage() {
                                           (p.assignedAvatarUrl ? (
                                             <img
                                               src={p.assignedAvatarUrl}
-                                              className="w-5 h-5 rounded-full object-cover ring-1 ring-white -ml-1.5"
+                                              className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-[#252d3d] -ml-2"
                                               alt=""
                                             />
                                           ) : (
                                             <div
-                                              className="w-5 h-5 rounded-full flex items-center justify-center text-[7px] font-bold text-white ring-1 ring-white -ml-1.5"
+                                              className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white ring-2 ring-white dark:ring-[#252d3d] -ml-2"
                                               style={{
                                                 backgroundColor:
                                                   p.assignedColor || "#6366f1",

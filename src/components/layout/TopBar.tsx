@@ -159,11 +159,11 @@ export function TopBar({ onOpenCommand }: TopBarProps) {
       const allItems = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as AppNotification,
       );
-      // Admins see all; members only see their own (targetUid matches)
-      const items =
-        myRole === "admin"
-          ? allItems
-          : allItems.filter((n) => !n.targetUid || n.targetUid === user?.uid);
+      // Everyone only sees notifications addressed to them (targetUid === uid)
+      // This ensures actors see their own confirmations, targets see their own alerts
+      const items = allItems.filter(
+        (n) => !n.targetUid || n.targetUid === user?.uid,
+      );
       setNotifications(items);
 
       const unread = items.filter((n) => !n.read).length;
