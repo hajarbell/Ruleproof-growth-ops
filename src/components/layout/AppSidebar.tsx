@@ -1,5 +1,5 @@
 // src/components/layout/AppSidebar.tsx
-// Changes: members strip is now clickable → popup shows each member + their LinkedIn account(s)
+// Changes: added Engagement Matrix nav item (Target icon)
 
 import { useState, useEffect, useRef } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
@@ -27,6 +27,7 @@ import {
   Pencil,
   X,
   Users,
+  Target,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -46,6 +47,7 @@ const ALL_NAV = [
   { title: "Facebook", path: "/facebook", icon: Facebook },
   { title: "Content Studio", path: "/content", icon: PenTool },
   { title: "Ideas Lab", path: "/ideas", icon: Lightbulb },
+  { title: "Engagement Matrix", path: "/engagement", icon: Target },
   { title: "Scrapers", path: "/scrapers", icon: Bot },
   { title: "Leads CRM", path: "/leads", icon: UserSearch },
   { title: "Campaigns", path: "/campaigns", icon: Megaphone },
@@ -193,12 +195,6 @@ function MembersPopup({ onClose }: { onClose: () => void }) {
 
       <div className="max-h-80 overflow-y-auto divide-y divide-border/40">
         {members.map((m) => {
-          // Find LinkedIn accounts for this member by matching name (best we can without uid on linkedinAccounts)
-          const memberLinkedIn = linkedinAccounts.filter(
-            (acc) => acc.linkedinId && acc.type === "personal",
-          );
-          // Rough match: if only 1 account and 1 member of personal type, link them
-          // Better matching happens when linkedinId → uid mapping is stored (future)
           return (
             <div key={m.uid} className="px-4 py-3">
               <div className="flex items-start gap-3">
@@ -279,7 +275,11 @@ function MembersPopup({ onClose }: { onClose: () => void }) {
                   )}
                 </div>
                 <span
-                  className={`text-[8px] px-1 py-0.5 rounded font-semibold uppercase ${acc.type === "personal" ? "bg-indigo-500/10 text-indigo-400" : "bg-sky-500/10 text-sky-400"}`}
+                  className={`text-[8px] px-1 py-0.5 rounded font-semibold uppercase ${
+                    acc.type === "personal"
+                      ? "bg-indigo-500/10 text-indigo-400"
+                      : "bg-sky-500/10 text-sky-400"
+                  }`}
                 >
                   {acc.type === "personal" ? "Personal" : "Company"}
                 </span>
@@ -540,7 +540,11 @@ export function AppSidebar() {
               <NavLink
                 key={path}
                 to={path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${isActive ? "bg-primary/10 text-primary" : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"} ${collapsed ? "justify-center" : ""}`}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-foreground"
+                } ${collapsed ? "justify-center" : ""}`}
               >
                 <Icon
                   className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-primary" : "text-muted-foreground group-hover:text-foreground"}`}
