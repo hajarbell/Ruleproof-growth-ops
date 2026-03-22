@@ -1,5 +1,5 @@
 // src/pages/EngagementPage.tsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Target,
@@ -14,16 +14,24 @@ import {
   Check,
   Clock,
   AlertCircle,
-  Github,
-  Download,
   Linkedin,
   StickyNote,
   ChevronRight,
   Flame,
   Search,
-  Filter,
+  BookmarkPlus,
+  Copy,
+  CheckCheck,
+  Bell,
+  Trash2,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import {
+  collection, doc, addDoc, updateDoc, deleteDoc,
+  onSnapshot, query, orderBy, setDoc, getDoc,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type Segment = "Creators" | "ICPs" | "Supporters" | "Competitors";
@@ -44,6 +52,7 @@ interface Interaction {
     | "replied"
     | "dm_sent"
     | "connected"
+    | "connection_sent"
     | "added"
     | "followed_up";
   note: string;
@@ -65,237 +74,16 @@ interface EngagementProfile {
   interactions: Interaction[];
   notes: string;
   followUpAlert?: string;
+  followUpDate?: string;
+  connectionAccepted?: boolean;
+  postTimestamps?: { date: string; dayOfWeek: number; hour: number }[];
+  postingPattern?: string;
   memberLinkedInName?: string;
   memberLinkedInBio?: string;
   memberLinkedInUrl?: string;
   memberLinkedInFollowers?: string;
 }
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-const MOCK_PROFILES: EngagementProfile[] = [
-  {
-    id: "1",
-    name: "Sarah Chen",
-    headline: "AI Founder · Building tools for operators",
-    avatarInitials: "SC",
-    avatarColor: "#6366f1",
-    followers: "12.4K",
-    profileUrl: "https://linkedin.com/in/sarah-chen",
-    segment: "Creators",
-    stage: "Replied",
-    lastInteracted: "2h ago",
-    postingPattern: "Tue · Thu · Sat mornings",
-    followUpAlert: "She replied 2h ago — good moment to DM",
-    interactions: [
-      {
-        id: "i1",
-        type: "replied",
-        note: "Replied to your comment on her AI post",
-        date: "Today, 2h ago",
-      },
-      {
-        id: "i2",
-        type: "commented",
-        note: "Commented on her post about founder burnout",
-        date: "Yesterday",
-      },
-      {
-        id: "i3",
-        type: "added",
-        note: "Added to engagement list",
-        date: "3 days ago",
-      },
-    ],
-    notes: "Very engaged with comments. Potential collab on content.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "2",
-    name: "Marcus Reid",
-    headline: "Personal Brand Coach · 7-fig business",
-    avatarInitials: "MR",
-    avatarColor: "#ec4899",
-    followers: "8.1K",
-    profileUrl: "https://linkedin.com/in/marcus-reid",
-    segment: "Creators",
-    stage: "Commented",
-    lastInteracted: "Yesterday",
-    postingPattern: "Mon · Wed · Fri",
-    interactions: [
-      {
-        id: "i1",
-        type: "commented",
-        note: "Commented on his post about pricing strategy",
-        date: "Yesterday",
-      },
-      {
-        id: "i2",
-        type: "added",
-        note: "Added to engagement list",
-        date: "4 days ago",
-      },
-    ],
-    notes: "High engagement rate. Posts daily. Good ICP overlap.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "3",
-    name: "Aisha Lawal",
-    headline: "Founder @ GrowthOS · SaaS & Ops",
-    avatarInitials: "AL",
-    avatarColor: "#0ea5e9",
-    followers: "22K",
-    profileUrl: "https://linkedin.com/in/aisha-lawal",
-    segment: "Creators",
-    stage: "Saved",
-    lastInteracted: "3 days ago",
-    postingPattern: "Daily — usually 8–10am",
-    followUpAlert: "3 days since added — time to engage!",
-    interactions: [
-      { id: "i1", type: "added", note: "Added from feed", date: "3 days ago" },
-    ],
-    notes: "22K followers. Very consistent poster. Engage ASAP.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "4",
-    name: "James Kim",
-    headline: "B2B SaaS Writer · Ghostwriter for founders",
-    avatarInitials: "JK",
-    avatarColor: "#10b981",
-    followers: "5.6K",
-    profileUrl: "https://linkedin.com/in/james-kim",
-    segment: "ICPs",
-    stage: "DM Sent",
-    lastInteracted: "4 days ago",
-    postingPattern: "Tue · Thu",
-    followUpAlert: "No reply after 4 days — send follow-up",
-    interactions: [
-      {
-        id: "i1",
-        type: "dm_sent",
-        note: "Sent DM about content collab",
-        date: "4 days ago",
-      },
-      {
-        id: "i2",
-        type: "replied",
-        note: "Replied to your comment",
-        date: "5 days ago",
-      },
-      {
-        id: "i3",
-        type: "commented",
-        note: "Commented on his writing post",
-        date: "6 days ago",
-      },
-    ],
-    notes: "Interested in ghostwriting services. Follow up needed.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "5",
-    name: "Priya Nair",
-    headline: "CMO · B2B demand gen · LinkedIn evangelist",
-    avatarInitials: "PN",
-    avatarColor: "#f59e0b",
-    followers: "18.7K",
-    profileUrl: "https://linkedin.com/in/priya-nair",
-    segment: "ICPs",
-    stage: "Connected",
-    lastInteracted: "1 week ago",
-    postingPattern: "Mon · Wed · Fri mornings",
-    interactions: [
-      {
-        id: "i1",
-        type: "connected",
-        note: "Accepted connection request",
-        date: "1 week ago",
-      },
-      {
-        id: "i2",
-        type: "commented",
-        note: "Commented on her demand gen post",
-        date: "10 days ago",
-      },
-    ],
-    notes: "CMO at a Series B company. Perfect ICP. Start DM conversation.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "6",
-    name: "Tom Vance",
-    headline: "LinkedIn Coach · 100K+ followers",
-    avatarInitials: "TV",
-    avatarColor: "#8b5cf6",
-    followers: "104K",
-    profileUrl: "https://linkedin.com/in/tom-vance",
-    segment: "Competitors",
-    stage: "Saved",
-    lastInteracted: "2 days ago",
-    postingPattern: "Daily — 7am sharp",
-    interactions: [
-      {
-        id: "i1",
-        type: "added",
-        note: "Added from competitor research",
-        date: "2 days ago",
-      },
-    ],
-    notes: "Direct competitor. Monitor post topics and engagement style.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-  {
-    id: "7",
-    name: "Fatima Ouali",
-    headline: "Startup founder · North Africa tech ecosystem",
-    avatarInitials: "FO",
-    avatarColor: "#14b8a6",
-    followers: "3.1K",
-    profileUrl: "https://linkedin.com/in/fatima-ouali",
-    segment: "Supporters",
-    stage: "Replied",
-    lastInteracted: "5h ago",
-    postingPattern: "Wed · Fri",
-    interactions: [
-      {
-        id: "i1",
-        type: "replied",
-        note: "Replied to your comment — very positive",
-        date: "5h ago",
-      },
-      {
-        id: "i2",
-        type: "commented",
-        note: "Commented on her startup story post",
-        date: "2 days ago",
-      },
-    ],
-    notes: "Always engages back. Great relationship. Support her content.",
-    memberLinkedInName: "You (Your LinkedIn)",
-    memberLinkedInBio: "Growth OS · Personal Brand · LinkedIn Strategy",
-    memberLinkedInUrl: "https://linkedin.com",
-    memberLinkedInFollowers: "3.2K",
-  },
-];
 
 const SEGMENTS: Segment[] = ["Creators", "ICPs", "Supporters", "Competitors"];
 
@@ -321,11 +109,59 @@ const STAGE_ORDER: Stage[] = [
   "Lead",
 ];
 
+const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const TODAY = new Date().toISOString().split("T")[0];
+const GOALS = { comments: 50, dms: 20, connections: 5 };
+
+function calcPostingPattern(timestamps?: { date: string; dayOfWeek: number; hour: number }[]): string {
+  if (!timestamps || timestamps.length === 0) return "Unknown";
+  const dayCounts: Record<number, number> = {};
+  const hours: number[] = [];
+  timestamps.forEach(({ dayOfWeek, hour }) => {
+    dayCounts[dayOfWeek] = (dayCounts[dayOfWeek] || 0) + 1;
+    hours.push(hour);
+  });
+  const topDays = Object.entries(dayCounts)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
+    .map(([d]) => DAYS[Number(d)]);
+  const avgHour = Math.round(hours.reduce((a, b) => a + b, 0) / hours.length);
+  const ampm = avgHour < 12 ? "AM" : "PM";
+  const h = avgHour % 12 || 12;
+  return \`\${topDays.join(" · ")} · ~\${h}\${ampm}\`;
+}
+
+function getAutoFollowUpAlert(profile: EngagementProfile): string | null {
+  if (profile.stage === "Connection Sent" && !profile.connectionAccepted) {
+    const sent = profile.interactions.find(i => i.type === "connection_sent" || i.type === "connected");
+    if (sent) {
+      const days = Math.floor((Date.now() - new Date(sent.date).getTime()) / 86400000);
+      if (days >= 5) return \`No reply to connection request after \${days} days\`;
+    }
+  }
+  if (profile.stage === "DM Sent") {
+    const dm = profile.interactions.find(i => i.type === "dm_sent");
+    if (dm) {
+      const days = Math.floor((Date.now() - new Date(dm.date).getTime()) / 86400000);
+      if (days >= 3) return \`No reply to DM after \${days} days — follow up?\`;
+    }
+  }
+  if (profile.followUpDate) {
+    if (new Date(profile.followUpDate) <= new Date()) return \`Follow-up overdue — reach out now\`;
+  }
+  if (profile.stage === "Saved" && profile.createdAt) {
+    const days = Math.floor((Date.now() - new Date(profile.createdAt).getTime()) / 86400000);
+    if (days >= 3) return \`Added \${days} days ago — time to engage!\`;
+  }
+  return null;
+}
+
 const INTERACTION_ICONS: Record<Interaction["type"], React.ReactNode> = {
   commented: <MessageSquare className="w-3 h-3" />,
   replied: <Check className="w-3 h-3" />,
   dm_sent: <Send className="w-3 h-3" />,
   connected: <UserPlus className="w-3 h-3" />,
+  connection_sent: <UserPlus className="w-3 h-3" />,
   added: <Plus className="w-3 h-3" />,
   followed_up: <Clock className="w-3 h-3" />,
 };
@@ -335,9 +171,78 @@ const INTERACTION_COLORS: Record<Interaction["type"], string> = {
   replied: "bg-success/10 text-success",
   dm_sent: "bg-warning/10 text-warning",
   connected: "bg-success/15 text-success",
+  connection_sent: "bg-warning/10 text-warning",
   added: "bg-muted text-muted-foreground",
   followed_up: "bg-warning/10 text-warning",
 };
+
+// ─── Bookmarklet Modal ────────────────────────────────────────────────────────
+function BookmarkletModal({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const appUrl = window.location.origin;
+
+  const code = `javascript:(function(){var wsId='${workspaceId}';var appUrl='${appUrl}';var n='';var h='';var fu=window.location.href;var fw='';try{n=document.querySelector('h1')?.innerText?.trim()||'';}catch(e){}try{h=document.querySelector('.text-body-medium')?.innerText?.trim()||'';}catch(e){}try{fw=document.querySelector('[class*="follower"]')?.innerText?.match(/[\d,\.]+[KMB]?/i)?.[0]||'';}catch(e){}var pts=[];try{document.querySelectorAll('time[datetime]').forEach(function(el){var dt=el.getAttribute('datetime');if(dt){var d=new Date(dt);if(!isNaN(d.getTime()))pts.push({date:d.toISOString(),dayOfWeek:d.getDay(),hour:d.getHours()});}});}catch(e){}var payload={name:n,headline:h,profileUrl:fu,followers:fw,postTimestamps:pts,workspaceId:wsId};fetch(appUrl+'/api/save-engagement-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(d){var ok=d.ok;var msg=ok?(d.action==='updated'?'\u{1F504} Profile updated!':'\u2705 Profile saved!'):'\u274C '+(d.error||'Error');var el=document.createElement('div');el.style.cssText='position:fixed;top:20px;right:20px;z-index:2147483647;background:#0f172a;color:#f8fafc;padding:14px 18px;border-radius:12px;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);';el.innerText=msg;document.body.appendChild(el);setTimeout(function(){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){el.remove();},300);},2500);}).catch(function(e){alert('RuProof: Could not save. Make sure you are logged in.');});})();`;
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-background/80 backdrop-blur-sm" onClick={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-card border border-border rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
+              <BookmarkPlus className="w-4 h-4 text-primary-foreground" />
+            </div>
+            <h2 className="text-base font-bold text-foreground font-display">Install Bookmarklet</h2>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="space-y-4">
+          <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Install once</p>
+            {["Copy the code below","In Chrome: right-click bookmarks bar → Add page","Paste the code as the URL, name it \"Save to Engagement\""].map((step, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                <p className="text-xs text-muted-foreground">{step}</p>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 rounded-xl bg-success/5 border border-success/20 space-y-2">
+            <p className="text-xs font-semibold text-foreground">Use it every time</p>
+            {["Go to any LinkedIn profile","Scroll down so their recent posts are visible","Click the bookmark → profile + posting pattern saved ✨"].map((step, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className="w-4 h-4 rounded-full bg-success/20 text-success text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                <p className="text-xs text-muted-foreground">{step}</p>
+              </div>
+            ))}
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bookmarklet Code</p>
+              <button onClick={copy} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${copied ? "bg-success/10 text-success" : "bg-muted hover:bg-muted/80 text-muted-foreground"}`}>
+                {copied ? <><CheckCheck className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy</>}
+              </button>
+            </div>
+            <div className="p-3 rounded-xl bg-muted border border-border font-mono text-[10px] text-muted-foreground break-all leading-relaxed max-h-24 overflow-y-auto select-all cursor-text">
+              {code}
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground text-center">✅ Zero LinkedIn TOS risk — only runs when you click it, never in background.</p>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
 
 // ─── Add Profile Modal ─────────────────────────────────────────────────────────
 function AddProfileModal({
@@ -517,6 +422,9 @@ function ProfilePanel({
   onLogInteraction,
   onUpdateNotes,
   onUpdateStage,
+  onUpdateSegment,
+  onDelete,
+  onSetFollowUp,
   fullscreen,
   onToggleFullscreen,
 }: {
@@ -529,6 +437,9 @@ function ProfilePanel({
   ) => void;
   onUpdateNotes: (profileId: string, notes: string) => void;
   onUpdateStage: (profileId: string, stage: Stage) => void;
+  onUpdateSegment: (profileId: string, segment: Segment) => void;
+  onDelete: (profileId: string) => void;
+  onSetFollowUp: (profileId: string, date: string) => void;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
 }) {
@@ -536,6 +447,12 @@ function ProfilePanel({
   const [interactionNote, setInteractionNote] = useState("");
   const [showLogForm, setShowLogForm] = useState(false);
   const [logType, setLogType] = useState<Interaction["type"]>("commented");
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  const [followUpDate, setFollowUpDate] = useState(profile.followUpDate?.split("T")[0] || "");
+
+  const autoAlert = getAutoFollowUpAlert(profile);
+  const displayAlert = autoAlert || profile.followUpAlert;
+  const pattern = profile.postingPattern || calcPostingPattern(profile.postTimestamps);
 
   const handleLog = () => {
     if (!interactionNote.trim()) return;
@@ -582,6 +499,13 @@ function ProfilePanel({
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
           <button
+            onClick={() => setShowFollowUp(f => !f)}
+            className={`p-1.5 rounded-lg transition-colors ${profile.followUpDate ? "text-warning bg-warning/10" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+            title="Set follow-up reminder"
+          >
+            <Bell className="w-3.5 h-3.5" />
+          </button>
+          <button
             onClick={onToggleFullscreen}
             className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             title={fullscreen ? "Exit fullscreen" : "Fullscreen"}
@@ -603,14 +527,34 @@ function ProfilePanel({
 
       <div className="flex-1 overflow-y-auto">
         {/* Follow-up alert */}
-        {profile.followUpAlert && (
+        {displayAlert && (
           <div className="mx-4 mt-4 p-3 rounded-xl bg-warning/10 border border-warning/20 flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-warning leading-relaxed">
-              {profile.followUpAlert}
-            </p>
+            <p className="text-xs text-warning leading-relaxed">{displayAlert}</p>
           </div>
         )}
+
+        {/* Follow-up date picker */}
+        <AnimatePresence>
+          {showFollowUp && (
+            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+              className="mx-4 mt-3 overflow-hidden">
+              <div className="p-3 rounded-xl bg-muted/50 border border-border">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-2">Set Follow-up Reminder</p>
+                <div className="flex gap-2">
+                  <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+                  <button onClick={() => { onSetFollowUp(profile.id, followUpDate); setShowFollowUp(false); }}
+                    className="px-3 py-1.5 rounded-lg gradient-primary text-primary-foreground text-xs font-medium">Set</button>
+                  {profile.followUpDate && (
+                    <button onClick={() => { onSetFollowUp(profile.id, ""); setFollowUpDate(""); setShowFollowUp(false); }}
+                      className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted">Clear</button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Stats row */}
         <div className="px-4 pt-4 grid grid-cols-2 gap-2">
@@ -621,10 +565,8 @@ function ProfilePanel({
             </p>
           </div>
           <div className="bg-muted/50 rounded-xl p-3">
-            <p className="text-[10px] text-muted-foreground mb-1">Posts</p>
-            <p className="text-sm font-bold text-foreground truncate">
-              {profile.postingPattern}
-            </p>
+            <p className="text-[10px] text-muted-foreground mb-1">Posts when</p>
+            <p className="text-sm font-bold text-foreground truncate">{pattern}</p>
           </div>
         </div>
 
@@ -804,8 +746,41 @@ function ProfilePanel({
           </div>
         </div>
 
+        {/* Segment selector */}
+        <div className="px-4 pt-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Segment</p>
+          <div className="flex flex-wrap gap-1.5">
+            {(["Creators","ICPs","Supporters","Competitors"] as Segment[]).map(s => (
+              <button key={s} onClick={() => onUpdateSegment(profile.id, s)}
+                className={`text-[10px] px-2.5 py-1 rounded-full border transition-all ${profile.segment === s ? "border-primary bg-primary/10 text-primary font-semibold" : "border-border text-muted-foreground hover:bg-muted"}`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Posting pattern day grid */}
+        {profile.postTimestamps && profile.postTimestamps.length > 0 && (
+          <div className="px-4 pt-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Posting Activity</p>
+            <div className="grid grid-cols-7 gap-1">
+              {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day, i) => {
+                const count = profile.postTimestamps!.filter(t => t.dayOfWeek === i).length;
+                return (
+                  <div key={day} className="flex flex-col items-center gap-1">
+                    <div className={`w-full h-5 rounded-md flex items-center justify-center text-[9px] font-bold ${count > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                      {count > 0 ? count : ""}
+                    </div>
+                    <span className="text-[9px] text-muted-foreground">{day}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Notes */}
-        <div className="px-4 pt-4 pb-4">
+        <div className="px-4 pt-4 pb-2">
           <div className="flex items-center gap-1.5 mb-2">
             <StickyNote className="w-3 h-3 text-muted-foreground" />
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
@@ -821,6 +796,16 @@ function ProfilePanel({
             className="w-full px-3 py-2.5 rounded-xl bg-muted/40 border border-border text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring resize-none"
           />
         </div>
+
+        {/* Delete */}
+        <div className="px-4 pb-4">
+          <button
+            onClick={() => { if (confirm(`Remove ${profile.name}?`)) onDelete(profile.id); }}
+            className="w-full py-2 rounded-xl border border-destructive/20 text-xs text-destructive hover:bg-destructive/10 transition-colors flex items-center justify-center gap-1.5"
+          >
+            <Trash2 className="w-3 h-3" /> Remove profile
+          </button>
+        </div>
       </div>
     </motion.div>
   );
@@ -828,88 +813,126 @@ function ProfilePanel({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function EngagementPage() {
-  const { user, members } = useAuth();
-  const [profiles, setProfiles] = useState<EngagementProfile[]>(MOCK_PROFILES);
+  const { user, workspace } = useAuth() as any;
+  const workspaceId: string = workspace?.id || user?.uid || "";
+
+  const [profiles, setProfiles] = useState<EngagementProfile[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeSegment, setActiveSegment] = useState<Segment>("Creators");
-  const [selectedId, setSelectedId] = useState<string | null>("1");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showBookmarklet, setShowBookmarklet] = useState(false);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<Stage | "All">("All");
+  const [progress, setProgress] = useState({ comments: 0, dms: 0, connections: 0, date: TODAY });
 
-  // Daily goals state
-  const [goals] = useState({ comments: 50, dms: 20, connections: 15 });
-  const [progress] = useState({ comments: 18, dms: 6, connections: 9 });
+  // Firebase: live profiles
+  useEffect(() => {
+    if (!workspaceId) return;
+    const q = query(
+      collection(db, "workspaces", workspaceId, "engagementProfiles"),
+      orderBy("createdAt", "desc")
+    );
+    const unsub = onSnapshot(q, snap => {
+      setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() } as EngagementProfile)));
+      setLoading(false);
+    }, () => setLoading(false));
+    return unsub;
+  }, [workspaceId]);
+
+  // Firebase: today's progress
+  useEffect(() => {
+    if (!workspaceId) return;
+    getDoc(doc(db, "workspaces", workspaceId, "engagementProgress", TODAY)).then(snap => {
+      if (snap.exists()) setProgress(snap.data() as any);
+    });
+  }, [workspaceId]);
+
+  const saveProgress = async (p: typeof progress) => {
+    if (!workspaceId) return;
+    await setDoc(doc(db, "workspaces", workspaceId, "engagementProgress", TODAY), p);
+  };
 
   const segmentProfiles = profiles.filter((p) => p.segment === activeSegment);
   const filteredProfiles = segmentProfiles.filter((p) => {
     const matchSearch =
       search.trim() === "" ||
       p.name.toLowerCase().includes(search.toLowerCase()) ||
-      p.headline.toLowerCase().includes(search.toLowerCase());
+      (p.headline || "").toLowerCase().includes(search.toLowerCase());
     const matchStage = stageFilter === "All" || p.stage === stageFilter;
     return matchSearch && matchStage;
   });
 
   const selectedProfile = profiles.find((p) => p.id === selectedId) ?? null;
+  const segmentCount = (s: Segment) => profiles.filter((p) => p.segment === s).length;
+  const alertCount = profiles.filter(p => getAutoFollowUpAlert(p)).length;
 
-  const segmentCount = (s: Segment) =>
-    profiles.filter((p) => p.segment === s).length;
-
-  const handleAdd = (data: Omit<EngagementProfile, "id" | "interactions">) => {
-    const newP: EngagementProfile = {
+  const handleAdd = async (data: Omit<EngagementProfile, "id" | "interactions">) => {
+    if (!workspaceId) return;
+    const now = new Date().toISOString();
+    const ref = await addDoc(collection(db, "workspaces", workspaceId, "engagementProfiles"), {
       ...data,
-      id: Date.now().toString(),
-      interactions: [
-        {
-          id: "i0",
-          type: "added",
-          note: "Added to engagement list",
-          date: "Just now",
-        },
-      ],
-    };
-    setProfiles((prev) => [newP, ...prev]);
-    setSelectedId(newP.id);
-    setActiveSegment(newP.segment);
+      interactions: [{ id: "i0", type: "added", note: "Added to engagement list", date: now, createdAt: now }],
+      createdAt: now,
+      updatedAt: now,
+    });
+    setSelectedId(ref.id);
+    setActiveSegment(data.segment);
   };
 
-  const handleLogInteraction = (
-    profileId: string,
-    type: Interaction["type"],
-    note: string,
-  ) => {
-    setProfiles((prev) =>
-      prev.map((p) =>
-        p.id === profileId
-          ? {
-              ...p,
-              lastInteracted: "Just now",
-              interactions: [
-                {
-                  id: Date.now().toString(),
-                  type,
-                  note,
-                  date: "Just now",
-                },
-                ...p.interactions,
-              ],
-            }
-          : p,
-      ),
-    );
+  const handleLogInteraction = async (profileId: string, type: Interaction["type"], note: string) => {
+    if (!workspaceId) return;
+    const now = new Date().toISOString();
+    const profile = profiles.find(p => p.id === profileId);
+    if (!profile) return;
+    const newInteraction = { id: Date.now().toString(), type, note, date: now, createdAt: now };
+    const updatedInteractions = [newInteraction, ...profile.interactions];
+    let newStage = profile.stage;
+    if (type === "commented" && profile.stage === "Saved") newStage = "Commented";
+    if (type === "replied" && profile.stage === "Commented") newStage = "Replied";
+    if (type === "connection_sent") newStage = "Connection Sent";
+    if (type === "connected") newStage = "Connected";
+    if (type === "dm_sent" && profile.stage === "Connected") newStage = "DM Sent";
+    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), {
+      interactions: updatedInteractions, stage: newStage, lastInteracted: now, updatedAt: now,
+    });
+    const newProgress = { ...progress };
+    if (type === "commented") newProgress.comments += 1;
+    if (type === "dm_sent") newProgress.dms += 1;
+    if (type === "connection_sent") newProgress.connections += 1;
+    setProgress(newProgress);
+    saveProgress(newProgress);
   };
 
-  const handleUpdateNotes = (profileId: string, notes: string) => {
-    setProfiles((prev) =>
-      prev.map((p) => (p.id === profileId ? { ...p, notes } : p)),
-    );
+  const handleUpdateNotes = async (profileId: string, notes: string) => {
+    if (!workspaceId) return;
+    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), { notes, updatedAt: new Date().toISOString() });
   };
 
-  const handleUpdateStage = (profileId: string, stage: Stage) => {
-    setProfiles((prev) =>
-      prev.map((p) => (p.id === profileId ? { ...p, stage } : p)),
-    );
+  const handleUpdateStage = async (profileId: string, stage: Stage) => {
+    if (!workspaceId) return;
+    const updates: any = { stage, updatedAt: new Date().toISOString() };
+    if (stage === "Connected") updates.connectionAccepted = true;
+    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), updates);
+  };
+
+  const handleUpdateSegment = async (profileId: string, segment: Segment) => {
+    if (!workspaceId) return;
+    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), { segment, updatedAt: new Date().toISOString() });
+  };
+
+  const handleDelete = async (profileId: string) => {
+    if (!workspaceId) return;
+    await deleteDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId));
+    if (selectedId === profileId) setSelectedId(null);
+  };
+
+  const handleSetFollowUp = async (profileId: string, date: string) => {
+    if (!workspaceId) return;
+    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), {
+      followUpDate: date ? new Date(date).toISOString() : "", updatedAt: new Date().toISOString(),
+    });
   };
 
   const progressPct = (val: number, max: number) =>
@@ -933,19 +956,18 @@ export default function EngagementPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Download app button */}
-          <a
-            href="https://github.com"
-            target="_blank"
-            rel="noopener noreferrer"
+          {alertCount > 0 && (
+            <div className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs font-medium text-warning">
+              <Bell className="w-3.5 h-3.5" />
+              {alertCount} alert{alertCount > 1 ? "s" : ""}
+            </div>
+          )}
+          <button
+            onClick={() => setShowBookmarklet(true)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
           >
-            <Github className="w-3.5 h-3.5" />
-            GitHub
-          </a>
-          <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
-            <Download className="w-3.5 h-3.5" />
-            App
+            <BookmarkPlus className="w-3.5 h-3.5" />
+            Bookmarklet
           </button>
           <button
             onClick={() => setShowAddModal(true)}
@@ -975,21 +997,22 @@ export default function EngagementPage() {
               {progress.comments}
             </span>
             <span className="text-sm text-muted-foreground">
-              / {goals.comments}
+              / {GOALS.comments}
             </span>
+            {progress.comments >= GOALS.comments && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{
-                width: `${progressPct(progress.comments, goals.comments)}%`,
+                width: `${progressPct(progress.comments, GOALS.comments)}%`,
               }}
               transition={{ duration: 0.8, ease: "easeOut" }}
               className="h-full rounded-full bg-primary"
             />
           </div>
           <p className="text-[10px] text-muted-foreground mt-1.5">
-            {progressPct(progress.comments, goals.comments)}% of daily goal
+            {progressPct(progress.comments, GOALS.comments)}% of daily goal
           </p>
         </motion.div>
 
@@ -1008,18 +1031,19 @@ export default function EngagementPage() {
             <span className="text-2xl font-bold font-display text-foreground">
               {progress.dms}
             </span>
-            <span className="text-sm text-muted-foreground">/ {goals.dms}</span>
+            <span className="text-sm text-muted-foreground">/ {GOALS.dms}</span>
+            {progress.dms >= GOALS.dms && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${progressPct(progress.dms, goals.dms)}%` }}
+              animate={{ width: `${progressPct(progress.dms, GOALS.dms)}%` }}
               transition={{ duration: 0.8, ease: "easeOut", delay: 0.1 }}
               className="h-full rounded-full bg-warning"
             />
           </div>
           <p className="text-[10px] text-muted-foreground mt-1.5">
-            {progressPct(progress.dms, goals.dms)}% of daily goal
+            {progressPct(progress.dms, GOALS.dms)}% of daily goal
           </p>
         </motion.div>
 
@@ -1039,21 +1063,22 @@ export default function EngagementPage() {
               {progress.connections}
             </span>
             <span className="text-sm text-muted-foreground">
-              / {goals.connections}
+              / {GOALS.connections}
             </span>
+            {progress.connections >= GOALS.connections && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
               initial={{ width: 0 }}
               animate={{
-                width: `${progressPct(progress.connections, goals.connections)}%`,
+                width: `${progressPct(progress.connections, GOALS.connections)}%`,
               }}
               transition={{ duration: 0.8, ease: "easeOut", delay: 0.15 }}
               className="h-full rounded-full bg-success"
             />
           </div>
           <p className="text-[10px] text-muted-foreground mt-1.5">
-            {progressPct(progress.connections, goals.connections)}% of daily
+            {progressPct(progress.connections, GOALS.connections)}% of daily
             goal
           </p>
         </motion.div>
@@ -1069,7 +1094,7 @@ export default function EngagementPage() {
               <button
                 key={seg}
                 onClick={() => setActiveSegment(seg)}
-                className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors ${
+                className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors relative ${
                   activeSegment === seg
                     ? "border-primary text-primary"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -1085,6 +1110,9 @@ export default function EngagementPage() {
                 >
                   {segmentCount(seg)}
                 </span>
+                {profiles.some(p => p.segment === seg && getAutoFollowUpAlert(p)) && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-warning absolute top-2 right-1" />
+                )}
               </button>
             ))}
           </div>
@@ -1123,10 +1151,19 @@ export default function EngagementPage() {
 
           {/* Profile rows */}
           <div className="flex-1 overflow-y-auto">
-            {filteredProfiles.length === 0 && (
-              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground">
+            {loading && (
+              <div className="flex items-center justify-center h-32 gap-2 text-muted-foreground">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <p className="text-sm">Loading...</p>
+              </div>
+            )}
+            {!loading && filteredProfiles.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
                 <Target className="w-8 h-8 opacity-20 mb-2" />
                 <p className="text-sm">No profiles found</p>
+                <button onClick={() => setShowBookmarklet(true)} className="text-xs text-primary hover:underline">
+                  Install bookmarklet to save LinkedIn profiles instantly
+                </button>
               </div>
             )}
             {filteredProfiles.map((profile, idx) => {
@@ -1218,6 +1255,9 @@ export default function EngagementPage() {
                 onLogInteraction={handleLogInteraction}
                 onUpdateNotes={handleUpdateNotes}
                 onUpdateStage={handleUpdateStage}
+                onUpdateSegment={handleUpdateSegment}
+                onDelete={handleDelete}
+                onSetFollowUp={handleSetFollowUp}
                 fullscreen={fullscreen}
                 onToggleFullscreen={() => setFullscreen((f) => !f)}
               />
@@ -1226,12 +1266,18 @@ export default function EngagementPage() {
         </AnimatePresence>
       </div>
 
-      {/* ── Add Profile Modal ── */}
+      {/* ── Modals ── */}
       <AnimatePresence>
         {showAddModal && (
           <AddProfileModal
             onClose={() => setShowAddModal(false)}
             onAdd={handleAdd}
+          />
+        )}
+        {showBookmarklet && (
+          <BookmarkletModal
+            workspaceId={workspaceId}
+            onClose={() => setShowBookmarklet(false)}
           />
         )}
       </AnimatePresence>
