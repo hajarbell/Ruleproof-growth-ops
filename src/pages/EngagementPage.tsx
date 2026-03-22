@@ -28,8 +28,16 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc,
-  onSnapshot, query, orderBy, setDoc, getDoc,
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -45,6 +53,12 @@ type Stage =
   | "Conversation"
   | "Lead";
 
+interface PostTimestamp {
+  date: string;
+  dayOfWeek: number;
+  hour: number;
+}
+
 interface Interaction {
   id: string;
   type:
@@ -57,6 +71,7 @@ interface Interaction {
     | "followed_up";
   note: string;
   date: string;
+  createdAt?: string;
 }
 
 interface EngagementProfile {
@@ -70,21 +85,28 @@ interface EngagementProfile {
   segment: Segment;
   stage: Stage;
   lastInteracted: string;
-  postingPattern: string;
+  postTimestamps?: PostTimestamp[];
+  postingPattern?: string;
   interactions: Interaction[];
   notes: string;
   followUpAlert?: string;
   followUpDate?: string;
   connectionAccepted?: boolean;
-  postTimestamps?: { date: string; dayOfWeek: number; hour: number }[];
-  postingPattern?: string;
+  createdAt?: string;
   memberLinkedInName?: string;
   memberLinkedInBio?: string;
   memberLinkedInUrl?: string;
   memberLinkedInFollowers?: string;
 }
 
+interface DailyProgress {
+  comments: number;
+  dms: number;
+  connections: number;
+  date: string;
+}
 
+// ─── Constants ────────────────────────────────────────────────────────────────
 const SEGMENTS: Segment[] = ["Creators", "ICPs", "Supporters", "Competitors"];
 
 const STAGE_COLORS: Record<Stage, string> = {
@@ -109,53 +131,6 @@ const STAGE_ORDER: Stage[] = [
   "Lead",
 ];
 
-const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-const TODAY = new Date().toISOString().split("T")[0];
-const GOALS = { comments: 50, dms: 20, connections: 5 };
-
-function calcPostingPattern(timestamps?: { date: string; dayOfWeek: number; hour: number }[]): string {
-  if (!timestamps || timestamps.length === 0) return "Unknown";
-  const dayCounts: Record<number, number> = {};
-  const hours: number[] = [];
-  timestamps.forEach(({ dayOfWeek, hour }) => {
-    dayCounts[dayOfWeek] = (dayCounts[dayOfWeek] || 0) + 1;
-    hours.push(hour);
-  });
-  const topDays = Object.entries(dayCounts)
-    .sort((a, b) => Number(b[1]) - Number(a[1]))
-    .slice(0, 3)
-    .map(([d]) => DAYS[Number(d)]);
-  const avgHour = Math.round(hours.reduce((a, b) => a + b, 0) / hours.length);
-  const ampm = avgHour < 12 ? "AM" : "PM";
-  const h = avgHour % 12 || 12;
-  return \`\${topDays.join(" · ")} · ~\${h}\${ampm}\`;
-}
-
-function getAutoFollowUpAlert(profile: EngagementProfile): string | null {
-  if (profile.stage === "Connection Sent" && !profile.connectionAccepted) {
-    const sent = profile.interactions.find(i => i.type === "connection_sent" || i.type === "connected");
-    if (sent) {
-      const days = Math.floor((Date.now() - new Date(sent.date).getTime()) / 86400000);
-      if (days >= 5) return \`No reply to connection request after \${days} days\`;
-    }
-  }
-  if (profile.stage === "DM Sent") {
-    const dm = profile.interactions.find(i => i.type === "dm_sent");
-    if (dm) {
-      const days = Math.floor((Date.now() - new Date(dm.date).getTime()) / 86400000);
-      if (days >= 3) return \`No reply to DM after \${days} days — follow up?\`;
-    }
-  }
-  if (profile.followUpDate) {
-    if (new Date(profile.followUpDate) <= new Date()) return \`Follow-up overdue — reach out now\`;
-  }
-  if (profile.stage === "Saved" && profile.createdAt) {
-    const days = Math.floor((Date.now() - new Date(profile.createdAt).getTime()) / 86400000);
-    if (days >= 3) return \`Added \${days} days ago — time to engage!\`;
-  }
-  return null;
-}
-
 const INTERACTION_ICONS: Record<Interaction["type"], React.ReactNode> = {
   commented: <MessageSquare className="w-3 h-3" />,
   replied: <Check className="w-3 h-3" />,
@@ -176,26 +151,128 @@ const INTERACTION_COLORS: Record<Interaction["type"], string> = {
   followed_up: "bg-warning/10 text-warning",
 };
 
+const AVATAR_COLORS = [
+  "#6366f1",
+  "#ec4899",
+  "#0ea5e9",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#14b8a6",
+  "#ef4444",
+];
+const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const TODAY = new Date().toISOString().split("T")[0];
+const GOALS = { comments: 50, dms: 20, connections: 5 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function calcPostingPattern(timestamps?: PostTimestamp[]): string {
+  if (!timestamps || timestamps.length === 0) return "Unknown";
+  const dayCounts: Record<number, number> = {};
+  const hours: number[] = [];
+  timestamps.forEach(({ dayOfWeek, hour }) => {
+    dayCounts[dayOfWeek] = (dayCounts[dayOfWeek] || 0) + 1;
+    hours.push(hour);
+  });
+  const topDays = Object.entries(dayCounts)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 3)
+    .map(([d]) => DAYS[Number(d)]);
+  const avgHour = Math.round(hours.reduce((a, b) => a + b, 0) / hours.length);
+  const ampm = avgHour < 12 ? "AM" : "PM";
+  const h = avgHour % 12 || 12;
+  return `${topDays.join(" · ")} · ~${h}${ampm}`;
+}
+
+function getAutoAlert(profile: EngagementProfile): string | null {
+  if (profile.stage === "Connection Sent" && !profile.connectionAccepted) {
+    const sent = profile.interactions.find(
+      (i) => i.type === "connection_sent" || i.type === "connected",
+    );
+    if (sent) {
+      const days = Math.floor(
+        (Date.now() - new Date(sent.createdAt || sent.date).getTime()) /
+          86400000,
+      );
+      if (days >= 5) return `No reply to connection request after ${days} days`;
+    }
+  }
+  if (profile.stage === "DM Sent") {
+    const dm = profile.interactions.find((i) => i.type === "dm_sent");
+    if (dm) {
+      const days = Math.floor(
+        (Date.now() - new Date(dm.createdAt || dm.date).getTime()) / 86400000,
+      );
+      if (days >= 3) return `No reply to DM after ${days} days — follow up?`;
+    }
+  }
+  if (profile.followUpDate && new Date(profile.followUpDate) <= new Date()) {
+    return "Follow-up overdue — reach out now";
+  }
+  if (profile.stage === "Saved" && profile.createdAt) {
+    const days = Math.floor(
+      (Date.now() - new Date(profile.createdAt).getTime()) / 86400000,
+    );
+    if (days >= 3) return `Added ${days} days ago — time to engage!`;
+  }
+  return profile.followUpAlert || null;
+}
+
 // ─── Bookmarklet Modal ────────────────────────────────────────────────────────
-function BookmarkletModal({ workspaceId, onClose }: { workspaceId: string; onClose: () => void }) {
+function BookmarkletModal({
+  workspaceId,
+  onClose,
+}: {
+  workspaceId: string;
+  onClose: () => void;
+}) {
   const [copied, setCopied] = useState(false);
   const appUrl = window.location.origin;
 
-  const code = `javascript:(function(){var wsId='${workspaceId}';var appUrl='${appUrl}';var n='';var h='';var fu=window.location.href;var fw='';try{n=document.querySelector('h1')?.innerText?.trim()||'';}catch(e){}try{h=document.querySelector('.text-body-medium')?.innerText?.trim()||'';}catch(e){}try{fw=document.querySelector('[class*="follower"]')?.innerText?.match(/[\d,\.]+[KMB]?/i)?.[0]||'';}catch(e){}var pts=[];try{document.querySelectorAll('time[datetime]').forEach(function(el){var dt=el.getAttribute('datetime');if(dt){var d=new Date(dt);if(!isNaN(d.getTime()))pts.push({date:d.toISOString(),dayOfWeek:d.getDay(),hour:d.getHours()});}});}catch(e){}var payload={name:n,headline:h,profileUrl:fu,followers:fw,postTimestamps:pts,workspaceId:wsId};fetch(appUrl+'/api/save-engagement-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();}).then(function(d){var ok=d.ok;var msg=ok?(d.action==='updated'?'\u{1F504} Profile updated!':'\u2705 Profile saved!'):'\u274C '+(d.error||'Error');var el=document.createElement('div');el.style.cssText='position:fixed;top:20px;right:20px;z-index:2147483647;background:#0f172a;color:#f8fafc;padding:14px 18px;border-radius:12px;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.1);';el.innerText=msg;document.body.appendChild(el);setTimeout(function(){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){el.remove();},300);},2500);}).catch(function(e){alert('RuProof: Could not save. Make sure you are logged in.');});})();`;
+  // bookmarklet as a plain string — no template literal nesting issues
+  const bm = [
+    "javascript:(function(){",
+    "var wsId='" + workspaceId + "';",
+    "var appUrl='" + appUrl + "';",
+    "var n='';var h='';var fu=window.location.href;var fw='';",
+    "try{n=document.querySelector('h1')?.innerText?.trim()||'';}catch(e){}",
+    "try{h=document.querySelector('.text-body-medium')?.innerText?.trim()||'';}catch(e){}",
+    "try{var fw2=document.querySelector('[class*=\"follower\"]');fw=fw2?fw2.innerText.match(/[\\d,\\.]+[KMB]?/i)?.[0]||'':'';}catch(e){}",
+    "var pts=[];",
+    "try{document.querySelectorAll('time[datetime]').forEach(function(el){",
+    "var dt=el.getAttribute('datetime');",
+    "if(dt){var d=new Date(dt);if(!isNaN(d.getTime()))pts.push({date:d.toISOString(),dayOfWeek:d.getDay(),hour:d.getHours()});}",
+    "});}catch(e){}",
+    "var payload={name:n,headline:h,profileUrl:fu,followers:fw,postTimestamps:pts,workspaceId:wsId};",
+    "fetch(appUrl+'/api/save-engagement-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})",
+    ".then(function(r){return r.json();})",
+    ".then(function(d){",
+    "var msg=d.ok?(d.action==='updated'?'Profile updated!':'Profile saved!'):'Error: '+(d.error||'unknown');",
+    "var el=document.createElement('div');",
+    "el.style.cssText='position:fixed;top:20px;right:20px;z-index:2147483647;background:#0f172a;color:#f8fafc;padding:14px 18px;border-radius:12px;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,0.5);';",
+    "el.innerText=msg;document.body.appendChild(el);",
+    "setTimeout(function(){el.remove();},2500);",
+    "})",
+    ".catch(function(){alert('RuProof: Could not save. Make sure you are logged in.');});",
+    "})();",
+  ].join("");
 
   const copy = async () => {
-    await navigator.clipboard.writeText(code);
+    await navigator.clipboard.writeText(bm);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-background/80 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[300] flex items-center justify-center bg-background/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96 }}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
         className="bg-card border border-border rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4"
       >
         <div className="flex items-center justify-between mb-5">
@@ -203,48 +280,95 @@ function BookmarkletModal({ workspaceId, onClose }: { workspaceId: string; onClo
             <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
               <BookmarkPlus className="w-4 h-4 text-primary-foreground" />
             </div>
-            <h2 className="text-base font-bold text-foreground font-display">Install Bookmarklet</h2>
+            <h2 className="text-base font-bold text-foreground font-display">
+              Install Bookmarklet
+            </h2>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
+
         <div className="space-y-4">
           <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-            <p className="text-xs font-semibold text-foreground">Install once</p>
-            {["Copy the code below","In Chrome: right-click bookmarks bar → Add page","Paste the code as the URL, name it \"Save to Engagement\""].map((step, i) => (
+            <p className="text-xs font-semibold text-foreground">
+              Install once
+            </p>
+            {[
+              "Copy the code below",
+              'In Chrome: right-click bookmarks bar → "Add page"',
+              'Paste the code as the URL — name it "Save to Engagement"',
+            ].map((step, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {i + 1}
+                </span>
                 <p className="text-xs text-muted-foreground">{step}</p>
               </div>
             ))}
           </div>
+
           <div className="p-4 rounded-xl bg-success/5 border border-success/20 space-y-2">
-            <p className="text-xs font-semibold text-foreground">Use it every time</p>
-            {["Go to any LinkedIn profile","Scroll down so their recent posts are visible","Click the bookmark → profile + posting pattern saved ✨"].map((step, i) => (
+            <p className="text-xs font-semibold text-foreground">
+              Use it every time
+            </p>
+            {[
+              "Go to any LinkedIn profile",
+              "Scroll down so their recent posts are visible",
+              "Click the bookmark → profile + posting pattern saved ✨",
+            ].map((step, i) => (
               <div key={i} className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-success/20 text-success text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">{i+1}</span>
+                <span className="w-4 h-4 rounded-full bg-success/20 text-success text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
+                  {i + 1}
+                </span>
                 <p className="text-xs text-muted-foreground">{step}</p>
               </div>
             ))}
           </div>
+
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bookmarklet Code</p>
-              <button onClick={copy} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${copied ? "bg-success/10 text-success" : "bg-muted hover:bg-muted/80 text-muted-foreground"}`}>
-                {copied ? <><CheckCheck className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy</>}
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                Bookmarklet Code
+              </p>
+              <button
+                onClick={copy}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  copied
+                    ? "bg-success/10 text-success"
+                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                }`}
+              >
+                {copied ? (
+                  <>
+                    <CheckCheck className="w-3 h-3" /> Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3 h-3" /> Copy
+                  </>
+                )}
               </button>
             </div>
             <div className="p-3 rounded-xl bg-muted border border-border font-mono text-[10px] text-muted-foreground break-all leading-relaxed max-h-24 overflow-y-auto select-all cursor-text">
-              {code}
+              {bm}
             </div>
           </div>
-          <p className="text-[10px] text-muted-foreground text-center">✅ Zero LinkedIn TOS risk — only runs when you click it, never in background.</p>
+
+          <p className="text-[10px] text-muted-foreground text-center">
+            ✅ Zero LinkedIn TOS risk — only runs when you click it, never in
+            background.
+          </p>
         </div>
       </motion.div>
     </div>
   );
 }
 
-// ─── Add Profile Modal ─────────────────────────────────────────────────────────
+// ─── Add Profile Modal ────────────────────────────────────────────────────────
 function AddProfileModal({
   onClose,
   onAdd,
@@ -265,19 +389,11 @@ function AddProfileModal({
     .join("")
     .toUpperCase()
     .slice(0, 2);
-  const COLORS = [
-    "#6366f1",
-    "#ec4899",
-    "#0ea5e9",
-    "#10b981",
-    "#f59e0b",
-    "#8b5cf6",
-    "#14b8a6",
-  ];
-  const color = COLORS[name.length % COLORS.length] || "#6366f1";
+  const color = AVATAR_COLORS[name.length % AVATAR_COLORS.length] || "#6366f1";
 
   const handleSubmit = () => {
     if (!name.trim()) return;
+    const now = new Date().toISOString();
     onAdd({
       name: name.trim(),
       headline: headline.trim(),
@@ -287,13 +403,11 @@ function AddProfileModal({
       profileUrl: profileUrl.trim() || "#",
       segment,
       stage: "Saved",
-      lastInteracted: "Just now",
+      lastInteracted: now,
+      postTimestamps: [],
       postingPattern: "Unknown",
       notes: notes.trim(),
-      memberLinkedInName: "You (Your LinkedIn)",
-      memberLinkedInBio: "Growth OS · Personal Brand",
-      memberLinkedInUrl: "https://linkedin.com",
-      memberLinkedInFollowers: "—",
+      createdAt: now,
     });
     onClose();
   };
@@ -415,7 +529,7 @@ function AddProfileModal({
   );
 }
 
-// ─── Profile Detail Panel ──────────────────────────────────────────────────────
+// ─── Profile Detail Panel ─────────────────────────────────────────────────────
 function ProfilePanel({
   profile,
   onClose,
@@ -448,11 +562,14 @@ function ProfilePanel({
   const [showLogForm, setShowLogForm] = useState(false);
   const [logType, setLogType] = useState<Interaction["type"]>("commented");
   const [showFollowUp, setShowFollowUp] = useState(false);
-  const [followUpDate, setFollowUpDate] = useState(profile.followUpDate?.split("T")[0] || "");
+  const [followUpDate, setFollowUpDate] = useState(
+    profile.followUpDate?.split("T")[0] || "",
+  );
 
-  const autoAlert = getAutoFollowUpAlert(profile);
-  const displayAlert = autoAlert || profile.followUpAlert;
-  const pattern = profile.postingPattern || calcPostingPattern(profile.postTimestamps);
+  const alert = getAutoAlert(profile);
+  const currentStageIdx = STAGE_ORDER.indexOf(profile.stage);
+  const pattern =
+    profile.postingPattern || calcPostingPattern(profile.postTimestamps);
 
   const handleLog = () => {
     if (!interactionNote.trim()) return;
@@ -460,8 +577,6 @@ function ProfilePanel({
     setInteractionNote("");
     setShowLogForm(false);
   };
-
-  const currentStageIdx = STAGE_ORDER.indexOf(profile.stage);
 
   return (
     <motion.div
@@ -488,7 +603,7 @@ function ProfilePanel({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <a
             href={profile.profileUrl}
             target="_blank"
@@ -499,8 +614,12 @@ function ProfilePanel({
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
           <button
-            onClick={() => setShowFollowUp(f => !f)}
-            className={`p-1.5 rounded-lg transition-colors ${profile.followUpDate ? "text-warning bg-warning/10" : "text-muted-foreground hover:text-foreground hover:bg-muted"}`}
+            onClick={() => setShowFollowUp((f) => !f)}
+            className={`p-1.5 rounded-lg transition-colors ${
+              profile.followUpDate
+                ? "text-warning bg-warning/10"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
             title="Set follow-up reminder"
           >
             <Bell className="w-3.5 h-3.5" />
@@ -527,28 +646,53 @@ function ProfilePanel({
 
       <div className="flex-1 overflow-y-auto">
         {/* Follow-up alert */}
-        {displayAlert && (
+        {alert && (
           <div className="mx-4 mt-4 p-3 rounded-xl bg-warning/10 border border-warning/20 flex items-start gap-2">
             <AlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 mt-0.5" />
-            <p className="text-xs text-warning leading-relaxed">{displayAlert}</p>
+            <p className="text-xs text-warning leading-relaxed">{alert}</p>
           </div>
         )}
 
         {/* Follow-up date picker */}
         <AnimatePresence>
           {showFollowUp && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-              className="mx-4 mt-3 overflow-hidden">
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mx-4 mt-3 overflow-hidden"
+            >
               <div className="p-3 rounded-xl bg-muted/50 border border-border">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-2">Set Follow-up Reminder</p>
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase mb-2">
+                  Set Follow-up Reminder
+                </p>
                 <div className="flex gap-2">
-                  <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
-                  <button onClick={() => { onSetFollowUp(profile.id, followUpDate); setShowFollowUp(false); }}
-                    className="px-3 py-1.5 rounded-lg gradient-primary text-primary-foreground text-xs font-medium">Set</button>
+                  <input
+                    type="date"
+                    value={followUpDate}
+                    onChange={(e) => setFollowUpDate(e.target.value)}
+                    className="flex-1 px-2.5 py-1.5 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                  <button
+                    onClick={() => {
+                      onSetFollowUp(profile.id, followUpDate);
+                      setShowFollowUp(false);
+                    }}
+                    className="px-3 py-1.5 rounded-lg gradient-primary text-primary-foreground text-xs font-medium"
+                  >
+                    Set
+                  </button>
                   {profile.followUpDate && (
-                    <button onClick={() => { onSetFollowUp(profile.id, ""); setFollowUpDate(""); setShowFollowUp(false); }}
-                      className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted">Clear</button>
+                    <button
+                      onClick={() => {
+                        onSetFollowUp(profile.id, "");
+                        setFollowUpDate("");
+                        setShowFollowUp(false);
+                      }}
+                      className="px-3 py-1.5 rounded-lg border border-border text-xs text-muted-foreground hover:bg-muted"
+                    >
+                      Clear
+                    </button>
                   )}
                 </div>
               </div>
@@ -566,7 +710,63 @@ function ProfilePanel({
           </div>
           <div className="bg-muted/50 rounded-xl p-3">
             <p className="text-[10px] text-muted-foreground mb-1">Posts when</p>
-            <p className="text-sm font-bold text-foreground truncate">{pattern}</p>
+            <p className="text-sm font-bold text-foreground truncate">
+              {pattern}
+            </p>
+          </div>
+        </div>
+
+        {/* Posting pattern day grid */}
+        {profile.postTimestamps && profile.postTimestamps.length > 0 && (
+          <div className="px-4 pt-3">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+              Posting Activity
+            </p>
+            <div className="grid grid-cols-7 gap-1">
+              {DAYS.map((day, i) => {
+                const count = profile.postTimestamps!.filter(
+                  (t) => t.dayOfWeek === i,
+                ).length;
+                return (
+                  <div key={day} className="flex flex-col items-center gap-1">
+                    <div
+                      className={`w-full h-5 rounded-md flex items-center justify-center text-[9px] font-bold ${
+                        count > 0
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {count > 0 ? count : ""}
+                    </div>
+                    <span className="text-[9px] text-muted-foreground">
+                      {day}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Segment selector */}
+        <div className="px-4 pt-4">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Segment
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {SEGMENTS.map((s) => (
+              <button
+                key={s}
+                onClick={() => onUpdateSegment(profile.id, s)}
+                className={`text-[10px] px-2.5 py-1 rounded-full border transition-all ${
+                  profile.segment === s
+                    ? "border-primary bg-primary/10 text-primary font-semibold"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -604,6 +804,7 @@ function ProfilePanel({
           <button
             onClick={() => {
               setLogType("commented");
+              setInteractionNote("");
               setShowLogForm(true);
             }}
             className="flex flex-col items-center gap-1 py-2.5 rounded-xl bg-primary/10 hover:bg-primary/20 transition-colors"
@@ -616,6 +817,7 @@ function ProfilePanel({
           <button
             onClick={() => {
               setLogType("dm_sent");
+              setInteractionNote("");
               setShowLogForm(true);
             }}
             className="flex flex-col items-center gap-1 py-2.5 rounded-xl bg-warning/10 hover:bg-warning/20 transition-colors"
@@ -625,7 +827,8 @@ function ProfilePanel({
           </button>
           <button
             onClick={() => {
-              setLogType("connected");
+              setLogType("connection_sent");
+              setInteractionNote("Sent connection request");
               setShowLogForm(true);
             }}
             className="flex flex-col items-center gap-1 py-2.5 rounded-xl bg-success/10 hover:bg-success/20 transition-colors"
@@ -648,7 +851,7 @@ function ProfilePanel({
             >
               <div className="bg-muted/40 rounded-xl p-3 border border-border">
                 <p className="text-[10px] font-semibold text-muted-foreground mb-2 uppercase">
-                  Log {logType.replace("_", " ")}
+                  Log {logType.replace(/_/g, " ")}
                 </p>
                 <input
                   value={interactionNote}
@@ -729,7 +932,10 @@ function ProfilePanel({
             {profile.interactions.map((interaction) => (
               <div key={interaction.id} className="flex items-start gap-2.5">
                 <div
-                  className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${INTERACTION_COLORS[interaction.type]}`}
+                  className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    INTERACTION_COLORS[interaction.type] ||
+                    "bg-muted text-muted-foreground"
+                  }`}
                 >
                   {INTERACTION_ICONS[interaction.type]}
                 </div>
@@ -738,46 +944,15 @@ function ProfilePanel({
                     {interaction.note}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {interaction.date}
+                    {interaction.createdAt
+                      ? new Date(interaction.createdAt).toLocaleDateString()
+                      : interaction.date}
                   </p>
                 </div>
               </div>
             ))}
           </div>
         </div>
-
-        {/* Segment selector */}
-        <div className="px-4 pt-4">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Segment</p>
-          <div className="flex flex-wrap gap-1.5">
-            {(["Creators","ICPs","Supporters","Competitors"] as Segment[]).map(s => (
-              <button key={s} onClick={() => onUpdateSegment(profile.id, s)}
-                className={`text-[10px] px-2.5 py-1 rounded-full border transition-all ${profile.segment === s ? "border-primary bg-primary/10 text-primary font-semibold" : "border-border text-muted-foreground hover:bg-muted"}`}>
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Posting pattern day grid */}
-        {profile.postTimestamps && profile.postTimestamps.length > 0 && (
-          <div className="px-4 pt-3">
-            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Posting Activity</p>
-            <div className="grid grid-cols-7 gap-1">
-              {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((day, i) => {
-                const count = profile.postTimestamps!.filter(t => t.dayOfWeek === i).length;
-                return (
-                  <div key={day} className="flex flex-col items-center gap-1">
-                    <div className={`w-full h-5 rounded-md flex items-center justify-center text-[9px] font-bold ${count > 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                      {count > 0 ? count : ""}
-                    </div>
-                    <span className="text-[9px] text-muted-foreground">{day}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Notes */}
         <div className="px-4 pt-4 pb-2">
@@ -800,7 +975,13 @@ function ProfilePanel({
         {/* Delete */}
         <div className="px-4 pb-4">
           <button
-            onClick={() => { if (confirm(`Remove ${profile.name}?`)) onDelete(profile.id); }}
+            onClick={() => {
+              if (
+                confirm(`Remove ${profile.name} from your Engagement Matrix?`)
+              ) {
+                onDelete(profile.id);
+              }
+            }}
             className="w-full py-2 rounded-xl border border-destructive/20 text-xs text-destructive hover:bg-destructive/10 transition-colors flex items-center justify-center gap-1.5"
           >
             <Trash2 className="w-3 h-3" /> Remove profile
@@ -825,35 +1006,54 @@ export default function EngagementPage() {
   const [showBookmarklet, setShowBookmarklet] = useState(false);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<Stage | "All">("All");
-  const [progress, setProgress] = useState({ comments: 0, dms: 0, connections: 0, date: TODAY });
+  const [progress, setProgress] = useState<DailyProgress>({
+    comments: 0,
+    dms: 0,
+    connections: 0,
+    date: TODAY,
+  });
 
-  // Firebase: live profiles
+  // ── Firebase: live profiles ──────────────────────────────────────────────
   useEffect(() => {
     if (!workspaceId) return;
     const q = query(
       collection(db, "workspaces", workspaceId, "engagementProfiles"),
-      orderBy("createdAt", "desc")
+      orderBy("createdAt", "desc"),
     );
-    const unsub = onSnapshot(q, snap => {
-      setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() } as EngagementProfile)));
-      setLoading(false);
-    }, () => setLoading(false));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setProfiles(
+          snap.docs.map(
+            (d) => ({ id: d.id, ...d.data() }) as EngagementProfile,
+          ),
+        );
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
     return unsub;
   }, [workspaceId]);
 
-  // Firebase: today's progress
+  // ── Firebase: today's progress ───────────────────────────────────────────
   useEffect(() => {
     if (!workspaceId) return;
-    getDoc(doc(db, "workspaces", workspaceId, "engagementProgress", TODAY)).then(snap => {
-      if (snap.exists()) setProgress(snap.data() as any);
+    getDoc(
+      doc(db, "workspaces", workspaceId, "engagementProgress", TODAY),
+    ).then((snap) => {
+      if (snap.exists()) setProgress(snap.data() as DailyProgress);
     });
   }, [workspaceId]);
 
-  const saveProgress = async (p: typeof progress) => {
+  const saveProgress = async (p: DailyProgress) => {
     if (!workspaceId) return;
-    await setDoc(doc(db, "workspaces", workspaceId, "engagementProgress", TODAY), p);
+    await setDoc(
+      doc(db, "workspaces", workspaceId, "engagementProgress", TODAY),
+      p,
+    );
   };
 
+  // ── Derived ──────────────────────────────────────────────────────────────
   const segmentProfiles = profiles.filter((p) => p.segment === activeSegment);
   const filteredProfiles = segmentProfiles.filter((p) => {
     const matchSearch =
@@ -863,40 +1063,80 @@ export default function EngagementPage() {
     const matchStage = stageFilter === "All" || p.stage === stageFilter;
     return matchSearch && matchStage;
   });
-
   const selectedProfile = profiles.find((p) => p.id === selectedId) ?? null;
-  const segmentCount = (s: Segment) => profiles.filter((p) => p.segment === s).length;
-  const alertCount = profiles.filter(p => getAutoFollowUpAlert(p)).length;
+  const segmentCount = (s: Segment) =>
+    profiles.filter((p) => p.segment === s).length;
+  const alertCount = profiles.filter((p) => getAutoAlert(p)).length;
+  const progressPct = (val: number, max: number) =>
+    Math.min(100, Math.round((val / max) * 100));
 
-  const handleAdd = async (data: Omit<EngagementProfile, "id" | "interactions">) => {
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleAdd = async (
+    data: Omit<EngagementProfile, "id" | "interactions">,
+  ) => {
     if (!workspaceId) return;
     const now = new Date().toISOString();
-    const ref = await addDoc(collection(db, "workspaces", workspaceId, "engagementProfiles"), {
-      ...data,
-      interactions: [{ id: "i0", type: "added", note: "Added to engagement list", date: now, createdAt: now }],
-      createdAt: now,
-      updatedAt: now,
-    });
+    const ref = await addDoc(
+      collection(db, "workspaces", workspaceId, "engagementProfiles"),
+      {
+        ...data,
+        interactions: [
+          {
+            id: "i0",
+            type: "added",
+            note: "Added to engagement list",
+            date: now,
+            createdAt: now,
+          },
+        ],
+        updatedAt: now,
+      },
+    );
     setSelectedId(ref.id);
     setActiveSegment(data.segment);
   };
 
-  const handleLogInteraction = async (profileId: string, type: Interaction["type"], note: string) => {
+  const handleLogInteraction = async (
+    profileId: string,
+    type: Interaction["type"],
+    note: string,
+  ) => {
     if (!workspaceId) return;
     const now = new Date().toISOString();
-    const profile = profiles.find(p => p.id === profileId);
+    const profile = profiles.find((p) => p.id === profileId);
     if (!profile) return;
-    const newInteraction = { id: Date.now().toString(), type, note, date: now, createdAt: now };
+
+    const newInteraction: Interaction = {
+      id: Date.now().toString(),
+      type,
+      note,
+      date: now,
+      createdAt: now,
+    };
     const updatedInteractions = [newInteraction, ...profile.interactions];
+
+    // Auto-advance stage
     let newStage = profile.stage;
-    if (type === "commented" && profile.stage === "Saved") newStage = "Commented";
-    if (type === "replied" && profile.stage === "Commented") newStage = "Replied";
+    if (type === "commented" && profile.stage === "Saved")
+      newStage = "Commented";
+    if (type === "replied" && profile.stage === "Commented")
+      newStage = "Replied";
     if (type === "connection_sent") newStage = "Connection Sent";
     if (type === "connected") newStage = "Connected";
-    if (type === "dm_sent" && profile.stage === "Connected") newStage = "DM Sent";
-    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), {
-      interactions: updatedInteractions, stage: newStage, lastInteracted: now, updatedAt: now,
-    });
+    if (type === "dm_sent" && profile.stage === "Connected")
+      newStage = "DM Sent";
+
+    await updateDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+      {
+        interactions: updatedInteractions,
+        stage: newStage,
+        lastInteracted: now,
+        updatedAt: now,
+      },
+    );
+
+    // Update daily progress
     const newProgress = { ...progress };
     if (type === "commented") newProgress.comments += 1;
     if (type === "dm_sent") newProgress.dms += 1;
@@ -907,36 +1147,57 @@ export default function EngagementPage() {
 
   const handleUpdateNotes = async (profileId: string, notes: string) => {
     if (!workspaceId) return;
-    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), { notes, updatedAt: new Date().toISOString() });
+    await updateDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+      {
+        notes,
+        updatedAt: new Date().toISOString(),
+      },
+    );
   };
 
   const handleUpdateStage = async (profileId: string, stage: Stage) => {
     if (!workspaceId) return;
-    const updates: any = { stage, updatedAt: new Date().toISOString() };
+    const updates: Record<string, unknown> = {
+      stage,
+      updatedAt: new Date().toISOString(),
+    };
     if (stage === "Connected") updates.connectionAccepted = true;
-    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), updates);
+    await updateDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+      updates,
+    );
   };
 
   const handleUpdateSegment = async (profileId: string, segment: Segment) => {
     if (!workspaceId) return;
-    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), { segment, updatedAt: new Date().toISOString() });
+    await updateDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+      {
+        segment,
+        updatedAt: new Date().toISOString(),
+      },
+    );
   };
 
   const handleDelete = async (profileId: string) => {
     if (!workspaceId) return;
-    await deleteDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId));
+    await deleteDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+    );
     if (selectedId === profileId) setSelectedId(null);
   };
 
   const handleSetFollowUp = async (profileId: string, date: string) => {
     if (!workspaceId) return;
-    await updateDoc(doc(db, "workspaces", workspaceId, "engagementProfiles", profileId), {
-      followUpDate: date ? new Date(date).toISOString() : "", updatedAt: new Date().toISOString(),
-    });
+    await updateDoc(
+      doc(db, "workspaces", workspaceId, "engagementProfiles", profileId),
+      {
+        followUpDate: date ? new Date(date).toISOString() : "",
+        updatedAt: new Date().toISOString(),
+      },
+    );
   };
-
-  const progressPct = (val: number, max: number) =>
-    Math.min(100, Math.round((val / max) * 100));
 
   return (
     <div className="flex flex-col h-full space-y-4 max-w-[1600px]">
@@ -999,7 +1260,11 @@ export default function EngagementPage() {
             <span className="text-sm text-muted-foreground">
               / {GOALS.comments}
             </span>
-            {progress.comments >= GOALS.comments && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
+            {progress.comments >= GOALS.comments && (
+              <span className="text-xs text-success font-semibold ml-1">
+                🔥
+              </span>
+            )}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
@@ -1032,7 +1297,11 @@ export default function EngagementPage() {
               {progress.dms}
             </span>
             <span className="text-sm text-muted-foreground">/ {GOALS.dms}</span>
-            {progress.dms >= GOALS.dms && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
+            {progress.dms >= GOALS.dms && (
+              <span className="text-xs text-success font-semibold ml-1">
+                🔥
+              </span>
+            )}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
@@ -1065,7 +1334,11 @@ export default function EngagementPage() {
             <span className="text-sm text-muted-foreground">
               / {GOALS.connections}
             </span>
-            {progress.connections >= GOALS.connections && <span className="text-xs text-success font-semibold ml-1">🔥</span>}
+            {progress.connections >= GOALS.connections && (
+              <span className="text-xs text-success font-semibold ml-1">
+                🔥
+              </span>
+            )}
           </div>
           <div className="h-1.5 rounded-full bg-muted overflow-hidden">
             <motion.div
@@ -1090,31 +1363,36 @@ export default function EngagementPage() {
         <div className="flex-1 flex flex-col glass rounded-2xl border border-border/50 shadow-soft overflow-hidden min-w-0">
           {/* Segment tabs */}
           <div className="flex items-center border-b border-border flex-shrink-0 overflow-x-auto">
-            {SEGMENTS.map((seg) => (
-              <button
-                key={seg}
-                onClick={() => setActiveSegment(seg)}
-                className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors relative ${
-                  activeSegment === seg
-                    ? "border-primary text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {seg}
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+            {SEGMENTS.map((seg) => {
+              const hasAlerts = profiles.some(
+                (p) => p.segment === seg && getAutoAlert(p),
+              );
+              return (
+                <button
+                  key={seg}
+                  onClick={() => setActiveSegment(seg)}
+                  className={`flex items-center gap-1.5 px-4 py-3 text-xs font-medium whitespace-nowrap border-b-2 transition-colors relative ${
                     activeSegment === seg
-                      ? "bg-primary/15 text-primary"
-                      : "bg-muted text-muted-foreground"
+                      ? "border-primary text-primary"
+                      : "border-transparent text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {segmentCount(seg)}
-                </span>
-                {profiles.some(p => p.segment === seg && getAutoFollowUpAlert(p)) && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-warning absolute top-2 right-1" />
-                )}
-              </button>
-            ))}
+                  {seg}
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                      activeSegment === seg
+                        ? "bg-primary/15 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {segmentCount(seg)}
+                  </span>
+                  {hasAlerts && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-warning absolute top-2.5 right-1.5" />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
           {/* Filter bar */}
@@ -1161,13 +1439,17 @@ export default function EngagementPage() {
               <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
                 <Target className="w-8 h-8 opacity-20 mb-2" />
                 <p className="text-sm">No profiles found</p>
-                <button onClick={() => setShowBookmarklet(true)} className="text-xs text-primary hover:underline">
+                <button
+                  onClick={() => setShowBookmarklet(true)}
+                  className="text-xs text-primary hover:underline"
+                >
                   Install bookmarklet to save LinkedIn profiles instantly
                 </button>
               </div>
             )}
             {filteredProfiles.map((profile, idx) => {
               const isSelected = selectedId === profile.id;
+              const hasAlert = !!getAutoAlert(profile);
               return (
                 <motion.div
                   key={profile.id}
@@ -1181,21 +1463,18 @@ export default function EngagementPage() {
                       : "hover:bg-muted/40"
                   }`}
                 >
-                  {/* Avatar */}
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0"
                     style={{ backgroundColor: profile.avatarColor }}
                   >
                     {profile.avatarInitials}
                   </div>
-
-                  {/* Name + headline */}
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
                       <p className="text-sm font-semibold text-foreground truncate">
                         {profile.name}
                       </p>
-                      {profile.followUpAlert && (
+                      {hasAlert && (
                         <Flame className="w-3 h-3 text-warning flex-shrink-0" />
                       )}
                     </div>
@@ -1203,8 +1482,6 @@ export default function EngagementPage() {
                       {profile.headline}
                     </p>
                   </div>
-
-                  {/* Stage badge */}
                   <div>
                     <span
                       className={`text-[10px] px-2 py-1 rounded-full font-medium ${STAGE_COLORS[profile.stage]}`}
@@ -1212,13 +1489,11 @@ export default function EngagementPage() {
                       {profile.stage}
                     </span>
                   </div>
-
-                  {/* Last interacted */}
                   <p className="text-xs text-muted-foreground truncate">
-                    {profile.lastInteracted}
+                    {profile.lastInteracted
+                      ? new Date(profile.lastInteracted).toLocaleDateString()
+                      : "—"}
                   </p>
-
-                  {/* Quick action */}
                   <div className="flex items-center gap-1">
                     <a
                       href={profile.profileUrl}
@@ -1231,7 +1506,11 @@ export default function EngagementPage() {
                       <ExternalLink className="w-3 h-3" />
                     </a>
                     <ChevronRight
-                      className={`w-3.5 h-3.5 transition-transform ${isSelected ? "text-primary rotate-90" : "text-muted-foreground"}`}
+                      className={`w-3.5 h-3.5 transition-transform ${
+                        isSelected
+                          ? "text-primary rotate-90"
+                          : "text-muted-foreground"
+                      }`}
                     />
                   </div>
                 </motion.div>
