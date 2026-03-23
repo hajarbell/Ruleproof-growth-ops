@@ -229,11 +229,10 @@ function BookmarkletModal({
   const [copied, setCopied] = useState(false);
   const appUrl = window.location.origin;
 
-  // bookmarklet as a plain string — no template literal nesting issues
+  // Uses window.open() instead of fetch() — bypasses LinkedIn's Content Security Policy
   const bm = [
     "javascript:(function(){",
-    "var wsId='" + workspaceId + "';",
-    "var appUrl='" + appUrl + "';",
+    "var base='" + appUrl + "/save-profile';",
     "var n='';var h='';var fu=window.location.href;var fw='';",
     "try{n=document.querySelector('h1')?.innerText?.trim()||'';}catch(e){}",
     "try{h=document.querySelector('.text-body-medium')?.innerText?.trim()||'';}catch(e){}",
@@ -243,17 +242,8 @@ function BookmarkletModal({
     "var dt=el.getAttribute('datetime');",
     "if(dt){var d=new Date(dt);if(!isNaN(d.getTime()))pts.push({date:d.toISOString(),dayOfWeek:d.getDay(),hour:d.getHours()});}",
     "});}catch(e){}",
-    "var payload={name:n,headline:h,profileUrl:fu,followers:fw,postTimestamps:pts,workspaceId:wsId};",
-    "fetch(appUrl+'/api/save-engagement-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})",
-    ".then(function(r){return r.json();})",
-    ".then(function(d){",
-    "var msg=d.ok?(d.action==='updated'?'Profile updated!':'Profile saved!'):'Error: '+(d.error||'unknown');",
-    "var el=document.createElement('div');",
-    "el.style.cssText='position:fixed;top:20px;right:20px;z-index:2147483647;background:#0f172a;color:#f8fafc;padding:14px 18px;border-radius:12px;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,0.5);';",
-    "el.innerText=msg;document.body.appendChild(el);",
-    "setTimeout(function(){el.remove();},2500);",
-    "})",
-    ".catch(function(){alert('RuProof: Could not save. Make sure you are logged in.');});",
+    "var url=base+'?name='+encodeURIComponent(n)+'&headline='+encodeURIComponent(h)+'&profileUrl='+encodeURIComponent(fu)+'&followers='+encodeURIComponent(fw)+'&pts='+encodeURIComponent(JSON.stringify(pts));",
+    "window.open(url,'ruproof_save','width=420,height=300,top=100,left=100');",
     "})();",
   ].join("");
 
@@ -318,7 +308,7 @@ function BookmarkletModal({
             {[
               "Go to any LinkedIn profile",
               "Scroll down so their recent posts are visible",
-              "Click the bookmark → profile + posting pattern saved ✨",
+              "Click the bookmark → small popup opens, saves, closes ✨",
             ].map((step, i) => (
               <div key={i} className="flex items-start gap-2">
                 <span className="w-4 h-4 rounded-full bg-success/20 text-success text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">

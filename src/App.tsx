@@ -25,6 +25,7 @@ import SettingsPage from "@/pages/SettingsPage";
 import LoggedOutPage from "@/pages/auth/LoggedOutPage";
 import NotFound from "@/pages/NotFound";
 import EngagementPage from "@/pages/EngagementPage";
+import SaveProfilePage from "@/pages/SaveProfilePage";
 
 export default function App() {
   return (
@@ -49,6 +50,9 @@ export default function App() {
 
           {/* PROTECTED — requires auth + workspace */}
           <Route element={<RequireWorkspace />}>
+            {/* Save profile popup — opened by bookmarklet, no sidebar */}
+            <Route path="/save-profile" element={<SaveProfilePage />} />
+
             <Route element={<AppLayout />}>
               <Route path="/" element={<Dashboard />} />
               <Route path="/linkedin" element={<LinkedInPage />} />
