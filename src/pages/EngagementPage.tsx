@@ -19,10 +19,10 @@ import {
   ChevronRight,
   Flame,
   Search,
-  BookmarkPlus,
-  Copy,
-  CheckCheck,
   Bell,
+  Puzzle,
+  ClipboardCopy,
+  CheckCheck,
   Trash2,
   RefreshCw,
 } from "lucide-react";
@@ -218,118 +218,103 @@ function getAutoAlert(profile: EngagementProfile): string | null {
   return profile.followUpAlert || null;
 }
 
-// ─── Bookmarklet Modal ────────────────────────────────────────────────────────
-function BookmarkletModal({
+// ─── Add Profile Button with Extension Connect dropdown ───────────────────────
+function AddProfileButton({
   workspaceId,
-  onClose,
+  onOpenModal,
 }: {
   workspaceId: string;
-  onClose: () => void;
+  onOpenModal: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const appUrl = window.location.origin;
+  const ref = useState(() => ({ current: null as HTMLDivElement | null }))[0];
 
-  // Uses window.open() instead of fetch() — bypasses LinkedIn's Content Security Policy
-  const bm = [
-    "javascript:(function(){",
-    "var base='" + appUrl + "/save-profile';",
-    "var n='';var h='';var fu=window.location.href;var fw='';",
-    "try{n=document.querySelector('.text-heading-xlarge')?.innerText?.trim()||document.querySelector('h1')?.innerText?.trim()||'';}catch(e){}",
-    "try{h=document.querySelector('.text-body-medium.break-words')?.innerText?.trim()||document.querySelector('.text-body-medium')?.innerText?.trim()||'';}catch(e){}",
-    "try{var fwEl=Array.from(document.querySelectorAll('span')).find(function(el){return el.innerText&&el.innerText.match(/^[\\d,\\.]+[KMB]?\\s*followers/i);});fw=fwEl?fwEl.innerText.match(/[\\d,\\.]+[KMB]?/i)[0]:'';}catch(e){}",
-    "var pts=[];",
-    "try{document.querySelectorAll('time[datetime]').forEach(function(el){",
-    "var dt=el.getAttribute('datetime');",
-    "if(dt){var d=new Date(dt);if(!isNaN(d.getTime()))pts.push({date:d.toISOString(),dayOfWeek:d.getDay(),hour:d.getHours()});}",
-    "});}catch(e){}",
-    "var url=base+'?name='+encodeURIComponent(n)+'&headline='+encodeURIComponent(h)+'&profileUrl='+encodeURIComponent(fu)+'&followers='+encodeURIComponent(fw)+'&pts='+encodeURIComponent(JSON.stringify(pts));",
-    "window.open(url,'ruproof_save','width=420,height=300,top=100,left=100');",
-    "})();",
-  ].join("");
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(bm);
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await navigator.clipboard.writeText(workspaceId);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
 
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
   return (
     <div
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-background/80 backdrop-blur-sm"
-      onClick={onClose}
+      className="relative"
+      ref={(el) => {
+        ref.current = el;
+      }}
     >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        onClick={(e) => e.stopPropagation()}
-        className="bg-card border border-border rounded-2xl shadow-xl p-6 w-full max-w-lg mx-4"
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 px-4 py-2 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity shadow-soft"
       >
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg gradient-primary flex items-center justify-center">
-              <BookmarkPlus className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <h2 className="text-base font-bold text-foreground font-display">
-              Install Bookmarklet
-            </h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground"
+        <Plus className="w-3.5 h-3.5" />
+        Add Profile
+        <ChevronRight
+          className={`w-3 h-3 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: 4, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.97 }}
+            transition={{ duration: 0.12 }}
+            className="absolute right-0 top-full mt-2 w-72 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
           >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-2">
-            <p className="text-xs font-semibold text-foreground">
-              Install once
-            </p>
-            {[
-              "Copy the code below",
-              'In Chrome: right-click bookmarks bar → "Add page"',
-              'Paste the code as the URL — name it "Save to Engagement"',
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-primary/20 text-primary text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {i + 1}
-                </span>
-                <p className="text-xs text-muted-foreground">{step}</p>
+            {/* Manual add option */}
+            <button
+              onClick={() => {
+                onOpenModal();
+                setOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted transition-colors text-left border-b border-border"
+            >
+              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                <Plus className="w-3.5 h-3.5 text-primary" />
               </div>
-            ))}
-          </div>
-
-          <div className="p-4 rounded-xl bg-success/5 border border-success/20 space-y-2">
-            <p className="text-xs font-semibold text-foreground">
-              Use it every time
-            </p>
-            {[
-              "Go to any LinkedIn profile",
-              "Scroll down so their recent posts are visible",
-              "Click the bookmark → small popup opens, saves, closes ✨",
-            ].map((step, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-success/20 text-success text-[9px] font-bold flex items-center justify-center flex-shrink-0 mt-0.5">
-                  {i + 1}
-                </span>
-                <p className="text-xs text-muted-foreground">{step}</p>
+              <div>
+                <p className="text-xs font-semibold text-foreground">
+                  Add manually
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  Fill in profile details yourself
+                </p>
               </div>
-            ))}
-          </div>
+            </button>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                Bookmarklet Code
+            {/* Extension connect section */}
+            <div className="px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Puzzle className="w-3.5 h-3.5 text-primary" />
+                <p className="text-xs font-semibold text-foreground">
+                  Connect Star extension
+                </p>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed mb-3">
+                Open <span className="text-foreground font-medium">Star</span> →
+                Save tab → paste your Workspace ID. Profiles you save on
+                LinkedIn will appear here instantly.
               </p>
               <button
                 onClick={copy}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                className={`w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${
                   copied
-                    ? "bg-success/10 text-success"
-                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                    ? "bg-success/10 text-success border border-success/20"
+                    : "bg-primary/10 text-primary border border-primary/20 hover:bg-primary/15"
                 }`}
               >
                 {copied ? (
@@ -338,22 +323,14 @@ function BookmarkletModal({
                   </>
                 ) : (
                   <>
-                    <Copy className="w-3 h-3" /> Copy
+                    <ClipboardCopy className="w-3 h-3" /> Copy Workspace ID
                   </>
                 )}
               </button>
             </div>
-            <div className="p-3 rounded-xl bg-muted border border-border font-mono text-[10px] text-muted-foreground break-all leading-relaxed max-h-24 overflow-y-auto select-all cursor-text">
-              {bm}
-            </div>
-          </div>
-
-          <p className="text-[10px] text-muted-foreground text-center">
-            ✅ Zero LinkedIn TOS risk — only runs when you click it, never in
-            background.
-          </p>
-        </div>
-      </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -993,7 +970,6 @@ export default function EngagementPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showBookmarklet, setShowBookmarklet] = useState(false);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<Stage | "All">("All");
   const [progress, setProgress] = useState<DailyProgress>({
@@ -1213,20 +1189,10 @@ export default function EngagementPage() {
               {alertCount} alert{alertCount > 1 ? "s" : ""}
             </div>
           )}
-          <button
-            onClick={() => setShowBookmarklet(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <BookmarkPlus className="w-3.5 h-3.5" />
-            Bookmarklet
-          </button>
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg gradient-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-opacity shadow-soft"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Add Profile
-          </button>
+          <AddProfileButton
+            workspaceId={workspaceId}
+            onOpenModal={() => setShowAddModal(true)}
+          />
         </div>
       </div>
 
@@ -1429,12 +1395,9 @@ export default function EngagementPage() {
               <div className="flex flex-col items-center justify-center h-32 text-muted-foreground gap-2">
                 <Target className="w-8 h-8 opacity-20 mb-2" />
                 <p className="text-sm">No profiles found</p>
-                <button
-                  onClick={() => setShowBookmarklet(true)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Install bookmarklet to save LinkedIn profiles instantly
-                </button>
+                <p className="text-xs text-muted-foreground">
+                  Save profiles via the Star extension on LinkedIn
+                </p>
               </div>
             )}
             {filteredProfiles.map((profile, idx) => {
@@ -1541,12 +1504,6 @@ export default function EngagementPage() {
           <AddProfileModal
             onClose={() => setShowAddModal(false)}
             onAdd={handleAdd}
-          />
-        )}
-        {showBookmarklet && (
-          <BookmarkletModal
-            workspaceId={workspaceId}
-            onClose={() => setShowBookmarklet(false)}
           />
         )}
       </AnimatePresence>
