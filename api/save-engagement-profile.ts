@@ -46,7 +46,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     followers,
     postTimestamps,
     workspaceId,
+    segment: rawSegment,
   } = req.body;
+  const segment = rawSegment || "Creators";
 
   if (!workspaceId || !name) {
     return res
@@ -116,7 +118,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       avatarUrl: avatarUrl || "",
       followers: followers || "—",
       profileUrl: profileUrl || "",
-      segment: "Creators",
+      segment,
       stage: "Saved",
       lastInteracted: now,
       postTimestamps: postTimestamps || [],
