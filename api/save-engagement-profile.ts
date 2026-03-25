@@ -31,9 +31,11 @@ function calcPostingPattern(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS — allow requests from the Star extension and any origin
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST")
     return res.status(405).json({ error: "Method not allowed" });
@@ -48,25 +50,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     workspaceId,
     segment: rawSegment,
   } = req.body;
+
   const segment = rawSegment || "Creators";
 
-  if (!workspaceId || !name) {
-    return res
-      .status(400)
-      .json({ ok: false, error: "Missing name or workspaceId" });
+  // Validate required fields
+  if (
+    !workspaceId ||
+    typeof workspaceId !== "string" ||
+    workspaceId.trim().length < 4
+  ) {
+    return res.status(400).json({
+      ok: false,
+      error:
+        "Missing or invalid workspaceId. Make sure you pasted the correct Workspace ID from RuProof.",
+    });
+  }
+
+  if (!name && !profileUrl) {
+    return res.status(400).json({
+      ok: false,
+      error: "Missing name or profileUrl",
+    });
   }
 
   try {
-    const colRef = db
-      .collection("workspaces")
-      .doc(workspaceId)
-      .collection("engagementProfiles");
+    // Verify workspace exists in Firestore
+    const wsRef = db.collection("workspaces").doc(workspaceId.trim());
+    const wsSnap = await wsRef.get();
+    if (!wsSnap.exists) {
+      return res.status(404).json({
+        ok: false,
+        error: `Workspace "${workspaceId}" not found. Double-check the Workspace ID in Star extension → Save tab.`,
+      });
+    }
+
+    const colRef = wsRef.collection("engagementProfiles");
 
     // Check if profile already exists by profileUrl
-    const existing = await colRef
-      .where("profileUrl", "==", profileUrl)
-      .limit(1)
-      .get();
+    const existing = profileUrl
+      ? await colRef.where("profileUrl", "==", profileUrl).limit(1).get()
+      : { empty: true, docs: [] as any[] };
 
     const AVATAR_COLORS = [
       "#6366f1",
@@ -77,13 +100,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       "#8b5cf6",
       "#14b8a6",
     ];
-    const initials = name
-      .split(" ")
-      .map((n: string) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2);
-    const color = AVATAR_COLORS[name.length % AVATAR_COLORS.length];
+    const safeName = (name || "").trim();
+    const initials =
+      safeName
+        .split(" ")
+        .map((n: string) => n[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "??";
+    const color = AVATAR_COLORS[safeName.length % AVATAR_COLORS.length];
     const pattern = calcPostingPattern(postTimestamps || []);
     const now = new Date().toISOString();
 
@@ -111,9 +136,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // Create new profile
     const docRef = await colRef.add({
-      name,
+      name: safeName,
       headline: headline || "",
-      avatarInitials: initials || "??",
+      avatarInitials: initials,
       avatarColor: color,
       avatarUrl: avatarUrl || "",
       followers: followers || "—",
@@ -127,7 +152,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         {
           id: "i0",
           type: "added",
-          note: "Saved via bookmarklet",
+          note: "Saved via Star extension",
           date: now,
           createdAt: now,
         },
