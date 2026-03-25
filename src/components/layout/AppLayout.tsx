@@ -3,9 +3,21 @@ import { Outlet } from "react-router-dom";
 import { AppSidebar } from "./AppSidebar";
 import { TopBar } from "./TopBar";
 import { CommandPalette } from "@/components/CommandPalette";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function AppLayout() {
   const [commandOpen, setCommandOpen] = useState(false);
+  const { workspace } = useAuth();
+
+  // Expose workspace ID on window so the Star extension can auto-detect it
+  // without the user needing to manually paste anything.
+  useEffect(() => {
+    if (workspace?.id) {
+      (window as any).__ruproof_workspace_id = workspace.id;
+    } else {
+      delete (window as any).__ruproof_workspace_id;
+    }
+  }, [workspace?.id]);
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
